@@ -1,0 +1,54 @@
+# Dependencies
+node_modules/
+
+# Next.js
+.next/
+out/
+
+# Prisma
+prisma/*.db
+
+# Python (legacy)
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+*.egg-info/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Database
+*.db
+*.sqlite
+
+# Build
+dist/
+build/
+
+# Debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
