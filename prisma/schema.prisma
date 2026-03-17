@@ -1,0 +1,207 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─── Auth ────────────────────────────────────────────────────────────────────
+
+model User {
+  id        String   @id @default(cuid())
+  username  String   @unique
+  email     String   @unique
+  password  String
+  createdAt DateTime @default(now())
+
+  memberships    LeagueMember[]
+  bids           Bid[]
+  createdLeagues League[]       @relation("LeagueCreator")
+}
+
+// ─── League ──────────────────────────────────────────────────────────────────
+
+model League {
+  id            String      @id @default(cuid())
+  name          String
+  description   String?
+  phase         LeaguePhase @default(SETUP)
+  budget        Int         @default(10000000)
+  scoringTopN   Int         @default(7)
+  overseasCap   Int         @default(4)
+  sheetUrl      String?
+  scoringRules  Json?
+  currentPot    String?
+  currentPlayer String?
+  createdById   String
+  createdBy     User        @relation("LeagueCreator", fields: [createdById], references: [id])
+  createdAt     DateTime    @default(now())
+
+  members LeagueMember[]
+  players Player[]
+  bids    Bid[]
+  matches LeagueMatch[]
+  trades  Trade[]
+}
+
+enum LeaguePhase {
+  SETUP
+  AUCTION_ACTIVE
+  AUCTION_COMPLETE
+  LEAGUE_ACTIVE
+  LEAGUE_COMPLETE
+}
+
+model LeagueMember {
+  id       String     @id @default(cuid())
+  leagueId String
+  userId   String
+  role     MemberRole @default(MEMBER)
+  league   League     @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+  user     User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([leagueId, userId])
+}
+
+enum MemberRole {
+  OWNER
+  MEMBER
+}
+
+// ─── Players & Auction ──────────────────────────────────────────────────────
+
+model Player {
+  id           String              @id @default(cuid())
+  slNo         Int?
+  name         String
+  position     String?
+  country      String              @default("India")
+  bowlingStyle String?
+  battingStyle String?
+  iplTeam      String?
+  basePrice    Int
+  pot          String
+  status       PlayerAuctionStatus @default(QUEUED)
+  soldTo       String?
+  soldPrice    Int?
+  externalId   String?
+  leagueId     String
+  league       League              @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+  createdAt    DateTime            @default(now())
+
+  bids         Bid[]
+  performances PlayerPerformance[]
+
+  @@index([leagueId, pot])
+  @@index([leagueId, status])
+}
+
+enum PlayerAuctionStatus {
+  QUEUED
+  ACTIVE
+  BIDDING_OPEN
+  SOLD
+  UNSOLD
+}
+
+model Bid {
+  id        String   @id @default(cuid())
+  playerId  String
+  userId    String
+  leagueId  String
+  amount    Int
+  createdAt DateTime @default(now())
+
+  player Player @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  league League @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+
+  @@index([playerId, createdAt])
+  @@index([leagueId, playerId])
+}
+
+// ─── Fantasy League (Phase 2) ───────────────────────────────────────────────
+
+model LeagueMatch {
+  id              String      @id @default(cuid())
+  leagueId        String
+  externalMatchId String
+  team1           String
+  team2           String
+  status          MatchStatus @default(UPCOMING)
+  matchDate       DateTime?
+  league          League      @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+
+  performances PlayerPerformance[]
+
+  @@unique([leagueId, externalMatchId])
+}
+
+enum MatchStatus {
+  UPCOMING
+  LIVE
+  COMPLETED
+}
+
+model PlayerPerformance {
+  id            String  @id @default(cuid())
+  playerId      String
+  matchId       String
+  runsScored    Int     @default(0)
+  ballsFaced    Int     @default(0)
+  fours         Int     @default(0)
+  sixes         Int     @default(0)
+  wicketsTaken  Int     @default(0)
+  oversBowled   Float   @default(0)
+  runsConceded  Int     @default(0)
+  maidens       Int     @default(0)
+  catches       Int     @default(0)
+  stumpings     Int     @default(0)
+  runOuts       Int     @default(0)
+  fantasyPoints Float   @default(0)
+  isDuck        Boolean @default(false)
+  isOut         Boolean @default(false)
+
+  player Player      @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  match  LeagueMatch @relation(fields: [matchId], references: [id], onDelete: Cascade)
+
+  @@unique([playerId, matchId])
+  @@index([matchId])
+}
+
+// ─── Trading (Future) ───────────────────────────────────────────────────────
+
+model Trade {
+  id         String      @id @default(cuid())
+  leagueId   String
+  fromUserId String
+  toUserId   String
+  status     TradeStatus @default(PROPOSED)
+  proposedAt DateTime    @default(now())
+  resolvedAt DateTime?
+  league     League      @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+
+  items TradeItem[]
+}
+
+enum TradeStatus {
+  PROPOSED
+  ACCEPTED
+  REJECTED
+  CANCELLED
+}
+
+model TradeItem {
+  id        String         @id @default(cuid())
+  tradeId   String
+  playerId  String
+  direction TradeDirection
+  trade     Trade          @relation(fields: [tradeId], references: [id], onDelete: Cascade)
+}
+
+enum TradeDirection {
+  FROM_PROPOSER
+  TO_PROPOSER
+}
