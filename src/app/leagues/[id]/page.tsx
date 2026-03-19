@@ -2,6 +2,8 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { InviteLink } from "./invite-link";
+import { PlayerImport } from "./player-import";
 
 export default async function LeagueDetailPage({
   params,
@@ -101,17 +103,34 @@ export default async function LeagueDetailPage({
         </div>
       </div>
 
-      <div className="mt-8">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold">
-            Players ({league._count.players})
-          </h2>
-          {isOwner && league.phase === "SETUP" && (
-            <span className="text-sm text-gray-500">
-              Upload players via CSV or Google Sheet (coming soon)
-            </span>
-          )}
+      {isOwner && (
+        <div className="mt-8">
+          <h2 className="text-lg font-semibold">Invite Friends</h2>
+          <p className="mt-1 text-sm text-gray-400">
+            Share this link to invite friends to your league.
+          </p>
+          <div className="mt-3">
+            <InviteLink inviteCode={league.inviteCode} />
+          </div>
         </div>
+      )}
+
+      <div className="mt-8">
+        <h2 className="text-lg font-semibold">
+          Players ({league._count.players})
+        </h2>
+
+        {isOwner && league.phase === "SETUP" && (
+          <div className="mt-4 rounded-xl border border-gray-800 bg-gray-900 p-5">
+            <h3 className="text-sm font-medium text-gray-300">Import Players</h3>
+            <p className="mt-1 text-xs text-gray-500">
+              Import from a Google Sheet or upload a CSV. Re-importing replaces all unsold players.
+            </p>
+            <div className="mt-4">
+              <PlayerImport leagueId={league.id} />
+            </div>
+          </div>
+        )}
 
         {league.players.length === 0 ? (
           <p className="mt-4 text-sm text-gray-500">

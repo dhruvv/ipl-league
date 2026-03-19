@@ -40,12 +40,21 @@ export const authConfig = {
 
       if (isAuthPage) {
         if (isLoggedIn) {
-          return Response.redirect(new URL("/leagues", nextUrl));
+          const callbackUrl = nextUrl.searchParams.get("callbackUrl");
+          return Response.redirect(
+            new URL(callbackUrl || "/leagues", nextUrl)
+          );
         }
         return true;
       }
 
-      return isLoggedIn;
+      if (!isLoggedIn) {
+        const loginUrl = new URL("/login", nextUrl);
+        loginUrl.searchParams.set("callbackUrl", nextUrl.pathname);
+        return Response.redirect(loginUrl);
+      }
+
+      return true;
     },
   },
 } satisfies NextAuthConfig;

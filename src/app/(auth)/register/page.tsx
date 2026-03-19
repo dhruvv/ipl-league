@@ -1,12 +1,22 @@
 "use client";
 
 import { signIn } from "next-auth/react";
-import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useState, Suspense } from "react";
 import Link from "next/link";
 
 export default function RegisterPage() {
+  return (
+    <Suspense>
+      <RegisterForm />
+    </Suspense>
+  );
+}
+
+function RegisterForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const callbackUrl = searchParams.get("callbackUrl") || "/leagues";
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -50,9 +60,9 @@ export default function RegisterPage() {
 
     if (result?.error) {
       setError("Account created but auto-login failed. Please sign in.");
-      router.push("/login");
+      router.push(`/login?callbackUrl=${encodeURIComponent(callbackUrl)}`);
     } else {
-      router.push("/leagues");
+      router.push(callbackUrl);
       router.refresh();
     }
   }
@@ -141,7 +151,10 @@ export default function RegisterPage() {
 
         <p className="text-center text-sm text-gray-400">
           Already have an account?{" "}
-          <Link href="/login" className="text-indigo-400 hover:text-indigo-300">
+          <Link
+            href={callbackUrl !== "/leagues" ? `/login?callbackUrl=${encodeURIComponent(callbackUrl)}` : "/login"}
+            className="text-indigo-400 hover:text-indigo-300"
+          >
             Sign in
           </Link>
         </p>

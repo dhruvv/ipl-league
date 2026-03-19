@@ -1,5 +1,23 @@
 # Player Auction + Fantasy League -- Full Architecture Plan
 
+## Current Implementation Status
+
+| Feature | Status |
+|---|---|
+| Auth (login / register) | Done |
+| League CRUD (create, detail, config) | Done |
+| Magic invite links (`/join/[code]`) | Done |
+| Player import (Google Sheet URL + CSV upload) | Done |
+| Pot-based auction (auctioneer controls, SSE) | Planned |
+| Live bidding (real-time via SSE) | Planned |
+| CricAPI integration (ball-by-ball data) | Planned |
+| Fantasy scoring engine (standard IPL rules) | Planned |
+| Leaderboard / team pages / match views | Planned |
+| Active-passive failover (two homeservers) | Planned |
+| Trading between teams | Future |
+
+---
+
 ## Three-Phase Overview
 
 ```mermaid
@@ -74,6 +92,42 @@ Before the auction starts, the league owner configures:
 - **Google Sheet URL**: Paste the "Publish to Web" CSV URL for live player sync.
 
 All of these are stored on the `League` model and can be edited until the auction starts.
+
+### Player Import (Google Sheet / CSV)
+
+The league owner imports players via two methods during the SETUP phase:
+
+1. **Google Sheet URL**: Paste any Google Sheets URL (edit link, share link, or published link). The server converts it to a CSV export URL, fetches the data, and parses it. The sheet URL is saved on the league for future re-imports.
+2. **CSV file upload**: Direct file upload as a fallback.
+
+Both methods use the same CSV parser (`src/lib/csv-parser.ts`) which does flexible header matching (case-insensitive, multiple aliases per column). Re-importing replaces all QUEUED (unsold) players -- already-sold players from a prior auction are preserved.
+
+- **Endpoint**: `POST /api/leagues/[id]/players/import`
+- **Google Sheets converter**: `src/lib/sheets.ts` -- handles `/edit`, `/pub`, `/export` URL variants
+
+### League Membership (Invite Links)
+
+Members join a league via magic invite links. The league owner copies a link from the league detail page and shares it (e.g. via WhatsApp).
+
+```mermaid
+sequenceDiagram
+    participant Owner as League Owner
+    participant App as Server
+    participant Friend as Friend
+
+    Owner->>App: Click "Copy Invite Link"
+    App-->>Owner: /join/[inviteCode]
+    Owner->>Friend: Shares link
+    Friend->>App: Visits /join/[inviteCode]
+    alt Not logged in
+        App-->>Friend: Redirect to /login?callbackUrl=/join/[code]
+        Friend->>App: Registers or logs in
+    end
+    App->>App: Add friend as MEMBER
+    App-->>Friend: Redirect to /leagues/[id]
+```
+
+Each league has a unique `inviteCode` field (auto-generated cuid). The `/join/[code]` server page looks up the league, adds the authenticated user as a MEMBER (idempotent), and redirects to the league detail page. The middleware preserves `callbackUrl` through the auth flow so unauthenticated users land back on the join page after logging in or registering.
 
 ### Pot-Based Auction Flow
 

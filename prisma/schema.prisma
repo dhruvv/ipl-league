@@ -26,6 +26,7 @@ model User {
 model League {
   id            String      @id @default(cuid())
   name          String
+  inviteCode    String      @unique @default(cuid())
   description   String?
   phase         LeaguePhase @default(SETUP)
   budget        Int         @default(10000000)

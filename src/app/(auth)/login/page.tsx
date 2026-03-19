@@ -1,12 +1,22 @@
 "use client";
 
 import { signIn } from "next-auth/react";
-import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useState, Suspense } from "react";
 import Link from "next/link";
 
 export default function LoginPage() {
+  return (
+    <Suspense>
+      <LoginForm />
+    </Suspense>
+  );
+}
+
+function LoginForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const callbackUrl = searchParams.get("callbackUrl") || "/leagues";
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -28,7 +38,7 @@ export default function LoginPage() {
     if (result?.error) {
       setError("Invalid email or password");
     } else {
-      router.push("/leagues");
+      router.push(callbackUrl);
       router.refresh();
     }
   }
@@ -87,7 +97,10 @@ export default function LoginPage() {
 
         <p className="text-center text-sm text-gray-400">
           Don&apos;t have an account?{" "}
-          <Link href="/register" className="text-indigo-400 hover:text-indigo-300">
+          <Link
+            href={callbackUrl !== "/leagues" ? `/register?callbackUrl=${encodeURIComponent(callbackUrl)}` : "/register"}
+            className="text-indigo-400 hover:text-indigo-300"
+          >
             Register
           </Link>
         </p>
