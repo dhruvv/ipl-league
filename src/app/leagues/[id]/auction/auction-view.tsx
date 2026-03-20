@@ -6,6 +6,7 @@ import { PlayerCard } from "./player-card";
 import { BidPanel } from "./bid-panel";
 import { TeamSidebar } from "./team-sidebar";
 import { AuctionLog } from "./auction-log";
+import { UpcomingPlayers } from "./upcoming-players";
 
 export interface AuctionPlayer {
   id: string;
@@ -19,7 +20,7 @@ export interface AuctionPlayer {
   basePrice: number;
   pot: string;
   status: string;
-  soldTo: string | null;
+  soldToTeamId: string | null;
   soldPrice: number | null;
 }
 
@@ -28,12 +29,15 @@ export interface BidEntry {
   amount: number;
   userId: string;
   username: string;
+  teamId: string | null;
+  teamName: string | null;
   createdAt: string;
 }
 
-export interface BudgetInfo {
-  userId: string;
-  username: string;
+export interface TeamBudgetInfo {
+  teamId: string;
+  teamName: string;
+  memberUserIds: string[];
   totalBudget: number;
   spent: number;
   remaining: number;
@@ -41,11 +45,17 @@ export interface BudgetInfo {
   playerCount: number;
 }
 
+export interface TeamInfo {
+  id: string;
+  name: string;
+  memberUserIds: string[];
+}
+
 export interface SoldEntry {
   playerId: string;
   playerName: string;
-  soldTo: string | null;
-  buyerName: string;
+  soldToTeamId: string | null;
+  teamName: string;
   soldPrice: number | null;
 }
 
@@ -58,10 +68,13 @@ export interface AuctionState {
   potPlayers: AuctionPlayer[];
   currentPlayer: AuctionPlayer | null;
   currentBids: BidEntry[];
-  budgets: BudgetInfo[];
+  budgets: TeamBudgetInfo[];
   soldLog: SoldEntry[];
   players: AuctionPlayer[];
   overseasCap: number;
+  minBidIncrement: number;
+  teams: TeamInfo[];
+  upcomingPlayers: AuctionPlayer[];
 }
 
 type AuctionAction =
@@ -81,7 +94,8 @@ type AuctionAction =
       type: "BIDDING_CLOSED";
       playerId: string;
       result: string;
-      soldTo?: string;
+      soldToTeamId?: string;
+      teamName?: string;
       buyerName?: string;
       soldPrice?: number;
       playerName?: string;
@@ -103,7 +117,23 @@ const initialState: AuctionState = {
   soldLog: [],
   players: [],
   overseasCap: 4,
+  minBidIncrement: 10000000,
+  teams: [],
+  upcomingPlayers: [],
 };
+
+function deriveUpcoming(
+  players: AuctionPlayer[],
+  currentPot: string | null,
+  currentPlayerIndex: number
+): AuctionPlayer[] {
+  if (!currentPot) return [];
+  const potPlayers = players.filter((p) => p.pot === currentPot);
+  return potPlayers
+    .slice(currentPlayerIndex + 1)
+    .filter((p) => p.status !== "SOLD" && p.status !== "UNSOLD")
+    .slice(0, 5);
+}
 
 function auctionReducer(
   state: AuctionState,
@@ -126,6 +156,7 @@ function auctionReducer(
       );
       const current =
         potPlayers.find((p) => p.id === action.currentPlayerId) ?? null;
+      const upcoming = deriveUpcoming(state.players, action.pot, action.currentPlayerIndex);
       return {
         ...state,
         currentPot: action.pot,
@@ -135,12 +166,14 @@ function auctionReducer(
           ? { ...current, status: "ACTIVE" }
           : null,
         currentBids: [],
+        upcomingPlayers: upcoming,
       };
     }
 
     case "PLAYER_ACTIVE": {
       const current =
         state.players.find((p) => p.id === action.currentPlayerId) ?? null;
+      const upcoming = deriveUpcoming(state.players, state.currentPot, action.currentPlayerIndex);
       return {
         ...state,
         currentPlayerIndex: action.currentPlayerIndex,
@@ -154,6 +187,7 @@ function auctionReducer(
             }
           : null,
         currentBids: [],
+        upcomingPlayers: upcoming,
       };
     }
 
@@ -180,7 +214,7 @@ function auctionReducer(
           ? {
               ...p,
               status: action.result,
-              soldTo: action.soldTo ?? null,
+              soldToTeamId: action.soldToTeamId ?? null,
               soldPrice: action.soldPrice ?? null,
             }
           : p
@@ -193,17 +227,17 @@ function auctionReducer(
               {
                 playerId: action.playerId,
                 playerName: action.playerName ?? "",
-                soldTo: action.soldTo ?? null,
-                buyerName: action.buyerName ?? "Unknown",
+                soldToTeamId: action.soldToTeamId ?? null,
+                teamName: action.teamName ?? "Unknown",
                 soldPrice: action.soldPrice ?? null,
               },
             ]
           : state.soldLog;
 
       const updatedBudgets =
-        action.result === "SOLD" && action.soldTo && action.soldPrice
+        action.result === "SOLD" && action.soldToTeamId && action.soldPrice
           ? state.budgets.map((b) =>
-              b.userId === action.soldTo
+              b.teamId === action.soldToTeamId
                 ? {
                     ...b,
                     spent: b.spent + (action.soldPrice ?? 0),
@@ -218,6 +252,8 @@ function auctionReducer(
             )
           : state.budgets;
 
+      const upcoming = deriveUpcoming(updatedPlayers, state.currentPot, state.currentPlayerIndex);
+
       return {
         ...state,
         players: updatedPlayers,
@@ -225,7 +261,7 @@ function auctionReducer(
           ? {
               ...state.currentPlayer,
               status: action.result,
-              soldTo: action.soldTo ?? null,
+              soldToTeamId: action.soldToTeamId ?? null,
               soldPrice: action.soldPrice ?? null,
             }
           : null,
@@ -236,11 +272,12 @@ function auctionReducer(
             ? {
                 ...p,
                 status: action.result,
-                soldTo: action.soldTo ?? null,
+                soldToTeamId: action.soldToTeamId ?? null,
                 soldPrice: action.soldPrice ?? null,
               }
             : p
         ),
+        upcomingPlayers: upcoming,
       };
     }
 
@@ -248,19 +285,21 @@ function auctionReducer(
       const updatedPlayers = state.players.map((p) =>
         p.id === action.playerId ? { ...p, status: "UNSOLD" } : p
       );
+      const upcoming = deriveUpcoming(updatedPlayers, state.currentPot, state.currentPlayerIndex);
       return {
         ...state,
         players: updatedPlayers,
         potPlayers: state.potPlayers.map((p) =>
           p.id === action.playerId ? { ...p, status: "UNSOLD" } : p
         ),
+        upcomingPlayers: upcoming,
       };
     }
 
     case "SALE_UNDONE": {
       const updatedPlayers = state.players.map((p) =>
         p.id === action.playerId
-          ? { ...p, status: "QUEUED", soldTo: null, soldPrice: null }
+          ? { ...p, status: "QUEUED", soldToTeamId: null, soldPrice: null }
           : p
       );
       return {
@@ -271,7 +310,7 @@ function auctionReducer(
         ),
         potPlayers: state.potPlayers.map((p) =>
           p.id === action.playerId
-            ? { ...p, status: "QUEUED", soldTo: null, soldPrice: null }
+            ? { ...p, status: "QUEUED", soldToTeamId: null, soldPrice: null }
             : p
         ),
       };
@@ -294,6 +333,32 @@ interface AuctionViewProps {
   }[];
 }
 
+function parseStatePayload(data: Record<string, unknown>): AuctionState {
+  const league = data.league as Record<string, unknown>;
+  const players = data.players as AuctionPlayer[];
+  const potPlayers = data.potPlayers as AuctionPlayer[];
+  const currentPot = league.currentPot as string | null;
+  const currentPlayerIndex = league.currentPlayerIndex as number;
+
+  return {
+    connected: true,
+    phase: league.phase as string,
+    pots: data.pots as string[],
+    currentPot,
+    currentPlayerIndex,
+    potPlayers,
+    currentPlayer: data.currentPlayer as AuctionPlayer | null,
+    currentBids: data.currentBids as BidEntry[],
+    budgets: data.budgets as TeamBudgetInfo[],
+    soldLog: data.soldLog as SoldEntry[],
+    players,
+    overseasCap: league.overseasCap as number,
+    minBidIncrement: league.minBidIncrement as number,
+    teams: data.teams as TeamInfo[],
+    upcomingPlayers: data.upcomingPlayers as AuctionPlayer[],
+  };
+}
+
 export function AuctionView({
   leagueId,
   userId,
@@ -311,20 +376,7 @@ export function AuctionView({
       const data = JSON.parse(e.data);
       dispatch({
         type: "STATE_SYNC",
-        payload: {
-          connected: true,
-          phase: data.league.phase,
-          pots: data.pots,
-          currentPot: data.league.currentPot,
-          currentPlayerIndex: data.league.currentPlayerIndex,
-          potPlayers: data.potPlayers,
-          currentPlayer: data.currentPlayer,
-          currentBids: data.currentBids,
-          budgets: data.budgets,
-          soldLog: data.soldLog,
-          players: data.players,
-          overseasCap: data.league.overseasCap,
-        },
+        payload: parseStatePayload(data),
       });
     });
 
@@ -366,6 +418,8 @@ export function AuctionView({
           amount: data.amount,
           userId: data.userId,
           username: data.username,
+          teamId: data.teamId ?? null,
+          teamName: data.teamName ?? null,
           createdAt: new Date().toISOString(),
         },
       });
@@ -377,7 +431,8 @@ export function AuctionView({
         type: "BIDDING_CLOSED",
         playerId: data.playerId,
         result: data.result,
-        soldTo: data.soldTo,
+        soldToTeamId: data.soldToTeamId,
+        teamName: data.teamName,
         buyerName: data.buyerName,
         soldPrice: data.soldPrice,
         playerName: data.playerName,
@@ -417,25 +472,18 @@ export function AuctionView({
       const data = await res.json();
       dispatch({
         type: "FULL_REFRESH",
-        payload: {
-          connected: true,
-          phase: data.league.phase,
-          pots: data.pots,
-          currentPot: data.league.currentPot,
-          currentPlayerIndex: data.league.currentPlayerIndex,
-          potPlayers: data.potPlayers,
-          currentPlayer: data.currentPlayer,
-          currentBids: data.currentBids,
-          budgets: data.budgets,
-          soldLog: data.soldLog,
-          players: data.players,
-          overseasCap: data.league.overseasCap,
-        },
+        payload: parseStatePayload(data),
       });
     }
   }, [leagueId]);
 
-  const myBudget = state.budgets.find((b) => b.userId === userId);
+  const myTeam = state.teams.find((t) =>
+    t.memberUserIds.includes(userId)
+  );
+  const myTeamBudget = myTeam
+    ? state.budgets.find((b) => b.teamId === myTeam.id)
+    : null;
+
   const highestBid =
     state.currentBids.length > 0 ? state.currentBids[0] : null;
 
@@ -472,15 +520,22 @@ export function AuctionView({
               highestBid={highestBid}
               potPlayers={state.potPlayers}
               currentIndex={state.currentPlayerIndex}
+              teams={state.teams}
             />
+
+            {state.upcomingPlayers.length > 0 && (
+              <UpcomingPlayers players={state.upcomingPlayers} />
+            )}
 
             {state.currentPlayer?.status === "BIDDING_OPEN" && (
               <BidPanel
                 leagueId={leagueId}
                 currentPlayer={state.currentPlayer}
                 highestBid={highestBid}
-                myBudget={myBudget ?? null}
+                myTeamBudget={myTeamBudget ?? null}
+                myTeamName={myTeam?.name ?? null}
                 overseasCap={state.overseasCap}
+                minBidIncrement={state.minBidIncrement}
               />
             )}
 
@@ -499,9 +554,15 @@ export function AuctionView({
                           : "text-gray-400"
                       }`}
                     >
-                      <span className="font-medium">{bid.username}</span>
+                      <span className="font-medium">
+                        {bid.teamName && (
+                          <span className="text-indigo-400">{bid.teamName}</span>
+                        )}
+                        {bid.teamName && " · "}
+                        {bid.username}
+                      </span>
                       <span className="tabular-nums">
-                        {bid.amount.toLocaleString()}
+                        {(bid.amount / 10000000).toFixed(1)} Cr
                       </span>
                     </div>
                   ))}
@@ -529,6 +590,7 @@ export function AuctionView({
         userId={userId}
         players={state.players}
         overseasCap={state.overseasCap}
+        teams={state.teams}
       />
     </div>
   );

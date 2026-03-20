@@ -41,11 +41,14 @@ model League {
   createdBy     User        @relation("LeagueCreator", fields: [createdById], references: [id])
   createdAt     DateTime    @default(now())
 
+  minBidIncrement Int         @default(10000000)
+
   members LeagueMember[]
   players Player[]
   bids    Bid[]
   matches LeagueMatch[]
   trades  Trade[]
+  teams   Team[]
 }
 
 enum LeaguePhase {
@@ -61,10 +64,24 @@ model LeagueMember {
   leagueId String
   userId   String
   role     MemberRole @default(MEMBER)
+  teamId   String?
   league   League     @relation(fields: [leagueId], references: [id], onDelete: Cascade)
   user     User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  team     Team?      @relation(fields: [teamId], references: [id])
 
   @@unique([leagueId, userId])
+}
+
+model Team {
+  id       String @id @default(cuid())
+  name     String
+  leagueId String
+  league   League @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+
+  members LeagueMember[]
+  bids    Bid[]
+
+  @@index([leagueId])
 }
 
 enum MemberRole {
@@ -87,7 +104,7 @@ model Player {
   basePrice    Int
   pot          String
   status       PlayerAuctionStatus @default(QUEUED)
-  soldTo       String?
+  soldToTeamId String?
   soldPrice    Int?
   externalId   String?
   leagueId     String
@@ -114,12 +131,14 @@ model Bid {
   playerId  String
   userId    String
   leagueId  String
+  teamId    String?
   amount    Int
   createdAt DateTime @default(now())
 
   player Player @relation(fields: [playerId], references: [id], onDelete: Cascade)
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
   league League @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+  team   Team?  @relation(fields: [teamId], references: [id], onDelete: Cascade)
 
   @@index([playerId, createdAt])
   @@index([leagueId, playerId])

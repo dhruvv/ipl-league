@@ -1,12 +1,13 @@
 "use client";
 
-import type { AuctionPlayer, BudgetInfo } from "./auction-view";
+import type { AuctionPlayer, TeamBudgetInfo, TeamInfo } from "./auction-view";
 
 interface TeamSidebarProps {
-  budgets: BudgetInfo[];
+  budgets: TeamBudgetInfo[];
   userId: string;
   players: AuctionPlayer[];
   overseasCap: number;
+  teams: TeamInfo[];
 }
 
 export function TeamSidebar({
@@ -14,32 +15,40 @@ export function TeamSidebar({
   userId,
   players,
   overseasCap,
+  teams,
 }: TeamSidebarProps) {
-  const myBudget = budgets.find((b) => b.userId === userId);
-  const myPlayers = players.filter(
-    (p) => p.status === "SOLD" && p.soldTo === userId
-  );
+  const myTeam = teams.find((t) => t.memberUserIds.includes(userId));
+  const myTeamBudget = myTeam
+    ? budgets.find((b) => b.teamId === myTeam.id)
+    : null;
+  const myPlayers = myTeam
+    ? players.filter(
+        (p) => p.status === "SOLD" && p.soldToTeamId === myTeam.id
+      )
+    : [];
 
   return (
     <aside className="hidden w-72 flex-shrink-0 overflow-y-auto border-l border-gray-800 bg-gray-950 p-4 lg:block">
-      {myBudget && (
+      {myTeam && myTeamBudget ? (
         <div className="mb-6">
-          <h3 className="text-sm font-medium text-gray-300">My Team</h3>
+          <h3 className="text-sm font-medium text-gray-300">
+            My Team: {myTeam.name}
+          </h3>
 
           <div className="mt-3 space-y-2">
             <div>
               <div className="flex justify-between text-xs text-gray-500">
                 <span>Budget</span>
                 <span className="tabular-nums">
-                  {myBudget.remaining.toLocaleString()} /{" "}
-                  {myBudget.totalBudget.toLocaleString()}
+                  {(myTeamBudget.remaining / 10000000).toFixed(1)} /{" "}
+                  {(myTeamBudget.totalBudget / 10000000).toFixed(1)} Cr
                 </span>
               </div>
               <div className="mt-1 h-2 overflow-hidden rounded-full bg-gray-800">
                 <div
                   className="h-full rounded-full bg-indigo-500 transition-all"
                   style={{
-                    width: `${(myBudget.remaining / myBudget.totalBudget) * 100}%`,
+                    width: `${(myTeamBudget.remaining / myTeamBudget.totalBudget) * 100}%`,
                   }}
                 />
               </div>
@@ -47,32 +56,36 @@ export function TeamSidebar({
 
             <div className="flex justify-between text-sm">
               <span className="text-gray-400">Players</span>
-              <span className="tabular-nums">{myBudget.playerCount}</span>
+              <span className="tabular-nums">{myTeamBudget.playerCount}</span>
             </div>
             <div className="flex justify-between text-sm">
               <span className="text-gray-400">Overseas</span>
               <span
                 className={`tabular-nums ${
-                  myBudget.overseasCount >= overseasCap
+                  myTeamBudget.overseasCount >= overseasCap
                     ? "text-amber-400"
                     : ""
                 }`}
               >
-                {myBudget.overseasCount}/{overseasCap}
+                {myTeamBudget.overseasCount}/{overseasCap}
               </span>
             </div>
             <div className="flex justify-between text-sm">
               <span className="text-gray-400">Spent</span>
               <span className="tabular-nums">
-                {myBudget.spent.toLocaleString()}
+                {(myTeamBudget.spent / 10000000).toFixed(1)} Cr
               </span>
             </div>
           </div>
         </div>
+      ) : (
+        <div className="mb-6 rounded-lg bg-amber-900/20 p-3 text-sm text-amber-300">
+          Join a team to bid and track your budget.
+        </div>
       )}
 
       {myPlayers.length > 0 && (
-        <div>
+        <div className="mb-6">
           <h3 className="text-sm font-medium text-gray-300">
             Won ({myPlayers.length})
           </h3>
@@ -91,7 +104,7 @@ export function TeamSidebar({
                   )}
                 </span>
                 <span className="ml-2 flex-shrink-0 text-xs tabular-nums text-gray-500">
-                  {p.soldPrice?.toLocaleString()}
+                  {((p.soldPrice ?? 0) / 10000000).toFixed(1)} Cr
                 </span>
               </div>
             ))}
@@ -99,31 +112,37 @@ export function TeamSidebar({
         </div>
       )}
 
-      <div className="mt-6">
+      <div>
         <h3 className="text-sm font-medium text-gray-300">
           All Teams
         </h3>
         <div className="mt-2 space-y-1">
-          {budgets.map((b) => (
-            <div
-              key={b.userId}
-              className={`flex items-center justify-between rounded px-2 py-1.5 text-sm ${
-                b.userId === userId ? "bg-gray-900" : ""
-              }`}
-            >
-              <span className="truncate text-gray-300">
-                {b.username}
-                {b.userId === userId && (
-                  <span className="ml-1 text-xs text-indigo-400">
-                    (you)
-                  </span>
-                )}
-              </span>
-              <span className="ml-2 flex-shrink-0 text-xs tabular-nums text-gray-500">
-                {b.remaining.toLocaleString()} | OS:{b.overseasCount}
-              </span>
-            </div>
-          ))}
+          {budgets.map((b) => {
+            const isMyTeam = b.teamId === myTeam?.id;
+            return (
+              <div
+                key={b.teamId}
+                className={`flex items-center justify-between rounded px-2 py-1.5 text-sm ${
+                  isMyTeam ? "bg-gray-900" : ""
+                }`}
+              >
+                <span className="truncate text-gray-300">
+                  {b.teamName}
+                  {isMyTeam && (
+                    <span className="ml-1 text-xs text-indigo-400">
+                      (you)
+                    </span>
+                  )}
+                </span>
+                <span className="ml-2 flex-shrink-0 text-xs tabular-nums text-gray-500">
+                  {(b.remaining / 10000000).toFixed(1)} Cr | OS:{b.overseasCount}
+                </span>
+              </div>
+            );
+          })}
+          {budgets.length === 0 && (
+            <p className="text-xs text-gray-600">No teams yet</p>
+          )}
         </div>
       </div>
     </aside>

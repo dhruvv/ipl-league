@@ -23,7 +23,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const { name, description, budget, scoringTopN, overseasCap } =
+    const { name, description, budget, scoringTopN, overseasCap, minBidIncrement } =
       await req.json();
 
     if (!name?.trim()) {
@@ -40,6 +40,7 @@ export async function POST(req: Request) {
         budget: budget ?? 10000000,
         scoringTopN: scoringTopN ?? 7,
         overseasCap: overseasCap ?? 4,
+        minBidIncrement: minBidIncrement ?? 10000000,
         createdById: user.id,
         members: {
           create: {

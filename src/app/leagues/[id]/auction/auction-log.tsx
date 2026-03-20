@@ -23,10 +23,10 @@ export function AuctionLog({ soldLog }: AuctionLogProps) {
             <span>
               <span className="font-medium">{entry.playerName}</span>
               <span className="text-gray-500"> sold to </span>
-              <span className="font-medium">{entry.buyerName}</span>
+              <span className="font-medium">{entry.teamName}</span>
             </span>
             <span className="tabular-nums">
-              {entry.soldPrice?.toLocaleString()}
+              {((entry.soldPrice ?? 0) / 10000000).toFixed(1)} Cr
             </span>
           </div>
         ))}

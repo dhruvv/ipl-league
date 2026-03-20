@@ -11,6 +11,10 @@
 | Pot-based auction (auctioneer controls, SSE) | Done |
 | Live bidding (real-time via SSE) | Done |
 | Role promotion (ADMIN role, promote/demote) | Done |
+| Team management (create, join, leave, roster) | Done |
+| Team-based budgets and bidding | Done |
+| Configurable bid increment (default 1 Cr) | Done |
+| Upcoming players preview (next 5) | Done |
 | CricAPI integration (ball-by-ball data) | Planned |
 | Fantasy scoring engine (standard IPL rules) | Planned |
 | Leaderboard / team pages / match views | Planned |
@@ -250,9 +254,69 @@ The auction page (`/leagues/[id]/auction`) uses a single `useReducer` to manage 
 `src/lib/auction-helpers.ts` provides:
 
 - `requireAuctionAdmin()` -- checks OWNER/ADMIN role
-- `getAuctionState()` -- full state snapshot (league, players, bids, budgets, sold log)
-- `calculateBudgets()` -- per-member budget, spent, remaining, overseas count
-- `validateBid()` -- checks bid amount, budget, overseas cap
+- `getAuctionState()` -- full state snapshot (league, players, bids, team budgets, sold log, teams, upcoming players, minBidIncrement)
+- `calculateBudgets()` -- per-team budget (`TeamBudgetInfo[]`), spent, remaining, overseas count
+- `validateBid()` -- checks bid amount, team budget, overseas cap, min increment; rejects users without a team
+
+### Teams
+
+Members form teams during the SETUP phase. Each team has a shared budget and bids collectively -- any team member can place bids on behalf of the team without consensus.
+
+#### Team Model
+
+```prisma
+model Team {
+  id       String @id @default(cuid())
+  name     String
+  leagueId String
+  league   League @relation(...)
+
+  members  LeagueMember[]
+  bids     Bid[]
+
+  @@index([leagueId])
+}
+```
+
+- `LeagueMember.teamId` (optional) links a member to a team
+- `Player.soldToTeamId` tracks which team purchased the player
+- `Bid.teamId` (optional) tracks which team placed the bid
+- `League.minBidIncrement` configures the minimum raise per bid (default: 1 Cr / 10,000,000)
+
+#### Team Management APIs
+
+| Route | Auth | Description |
+|---|---|---|
+| `POST /api/leagues/[id]/teams` | Any member | Create a team (SETUP only), creator auto-joins |
+| `POST /api/leagues/[id]/teams/[teamId]/join` | Any member | Join a team (SETUP only), removes from previous team |
+| `POST /api/leagues/[id]/teams/[teamId]/leave` | Any member | Leave current team (SETUP only) |
+| `GET /api/leagues/[id]/teams/[teamId]` | Any member | Team details: members, purchased players, budget |
+
+#### Team Detail Page
+
+`/leagues/[id]/teams/[teamId]` shows:
+- Team name and member list
+- Purchased player roster with sold prices
+- Budget summary (total / spent / remaining / overseas count)
+- Viewable by all league members
+
+#### Team-Based Budget & Bidding
+
+- `calculateBudgets()` returns `TeamBudgetInfo[]` keyed by `teamId` instead of `userId`
+- `validateBid()` looks up the bidder's team, checks team budget and overseas cap
+- Members without a team cannot place bids
+- The auction UI shows team names on bids, sold entries, and the sidebar
+
+#### Configurable Bid Increment
+
+- `League.minBidIncrement` (default: 1 Cr) sets the minimum raise per bid
+- Set during league creation, displayed on the league detail page
+- Bid panel dynamically scales: quick-bid buttons show `+1x`, `+2x`, `+5x`, `+10x` of the increment
+- The `step` attribute on the bid input matches the increment
+
+#### Upcoming Players Preview
+
+During an auction, the UI shows the next 5 queued players in the current pot as compact cards below the current player card. Each card displays: name, position, country (overseas highlighted), and base price. Players already SOLD or UNSOLD are skipped.
 
 ---
 

@@ -20,7 +20,7 @@ export async function POST(
   const lastSold = await prisma.player.findFirst({
     where: { leagueId, status: "SOLD" },
     orderBy: { createdAt: "desc" },
-    select: { id: true, name: true, soldTo: true, soldPrice: true },
+    select: { id: true, name: true, soldToTeamId: true, soldPrice: true },
   });
 
   if (!lastSold) {
@@ -32,7 +32,7 @@ export async function POST(
 
   await prisma.player.update({
     where: { id: lastSold.id },
-    data: { status: "QUEUED", soldTo: null, soldPrice: null },
+    data: { status: "QUEUED", soldToTeamId: null, soldPrice: null },
   });
 
   await prisma.bid.deleteMany({
@@ -42,7 +42,7 @@ export async function POST(
   auctionEmitter.emit(leagueId, "sale-undone", {
     playerId: lastSold.id,
     playerName: lastSold.name,
-    previousBuyer: lastSold.soldTo,
+    previousTeamId: lastSold.soldToTeamId,
     previousPrice: lastSold.soldPrice,
   });
 

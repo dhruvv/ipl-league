@@ -1,12 +1,13 @@
 "use client";
 
-import type { AuctionPlayer, BidEntry } from "./auction-view";
+import type { AuctionPlayer, BidEntry, TeamInfo } from "./auction-view";
 
 interface PlayerCardProps {
   player: AuctionPlayer | null;
   highestBid: BidEntry | null;
   potPlayers: AuctionPlayer[];
   currentIndex: number;
+  teams: TeamInfo[];
 }
 
 const statusColors: Record<string, string> = {
@@ -22,6 +23,7 @@ export function PlayerCard({
   highestBid,
   potPlayers,
   currentIndex,
+  teams,
 }: PlayerCardProps) {
   if (!player) {
     return (
@@ -30,6 +32,10 @@ export function PlayerCard({
       </div>
     );
   }
+
+  const soldTeam = player.soldToTeamId
+    ? teams.find((t) => t.id === player.soldToTeamId)
+    : null;
 
   return (
     <div className="rounded-xl border border-gray-800 bg-gray-900 p-6">
@@ -71,7 +77,7 @@ export function PlayerCard({
             Base Price
           </p>
           <p className="text-lg font-semibold tabular-nums">
-            {player.basePrice.toLocaleString()}
+            {(player.basePrice / 10000000).toFixed(1)} Cr
           </p>
         </div>
       </div>
@@ -83,10 +89,14 @@ export function PlayerCard({
           </p>
           <div className="mt-1 flex items-baseline gap-2">
             <span className="text-2xl font-bold tabular-nums text-emerald-300">
-              {highestBid.amount.toLocaleString()}
+              {(highestBid.amount / 10000000).toFixed(1)} Cr
             </span>
             <span className="text-sm text-emerald-400">
-              by {highestBid.username}
+              {highestBid.teamName && (
+                <span className="font-medium">{highestBid.teamName}</span>
+              )}
+              {highestBid.teamName && " · "}
+              {highestBid.username}
             </span>
           </div>
         </div>
@@ -97,9 +107,16 @@ export function PlayerCard({
           <p className="text-xs uppercase tracking-wider text-amber-400">
             Sold
           </p>
-          <p className="mt-1 text-xl font-bold tabular-nums text-amber-300">
-            {player.soldPrice.toLocaleString()}
-          </p>
+          <div className="mt-1 flex items-baseline gap-2">
+            <span className="text-xl font-bold tabular-nums text-amber-300">
+              {(player.soldPrice / 10000000).toFixed(1)} Cr
+            </span>
+            {soldTeam && (
+              <span className="text-sm text-amber-400">
+                to {soldTeam.name}
+              </span>
+            )}
+          </div>
         </div>
       )}
 

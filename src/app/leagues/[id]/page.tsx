@@ -5,6 +5,7 @@ import { notFound } from "next/navigation";
 import { InviteLink } from "./invite-link";
 import { PlayerImport } from "./player-import";
 import { RoleToggle } from "./role-toggle";
+import { TeamSection } from "./team-section";
 
 export default async function LeagueDetailPage({
   params,
@@ -25,6 +26,13 @@ export default async function LeagueDetailPage({
       },
       players: {
         orderBy: [{ pot: "asc" }, { slNo: "asc" }],
+      },
+      teams: {
+        include: {
+          members: {
+            include: { user: { select: { id: true, username: true } } },
+          },
+        },
       },
       _count: { select: { players: true, bids: true } },
     },
@@ -68,7 +76,7 @@ export default async function LeagueDetailPage({
         </div>
       </div>
 
-      <div className="mt-8 grid gap-6 sm:grid-cols-3">
+      <div className="mt-8 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
         <div className="rounded-xl border border-gray-800 bg-gray-900 p-4">
           <p className="text-xs font-medium uppercase tracking-wider text-gray-500">Budget</p>
           <p className="mt-1 text-xl font-semibold tabular-nums">
@@ -82,6 +90,35 @@ export default async function LeagueDetailPage({
         <div className="rounded-xl border border-gray-800 bg-gray-900 p-4">
           <p className="text-xs font-medium uppercase tracking-wider text-gray-500">Overseas Cap</p>
           <p className="mt-1 text-xl font-semibold">{league.overseasCap}</p>
+        </div>
+        <div className="rounded-xl border border-gray-800 bg-gray-900 p-4">
+          <p className="text-xs font-medium uppercase tracking-wider text-gray-500">Bid Increment</p>
+          <p className="mt-1 text-xl font-semibold tabular-nums">
+            {(league.minBidIncrement / 10000000).toFixed(1)} Cr
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-8">
+        <h2 className="text-lg font-semibold">
+          Teams ({league.teams.length})
+        </h2>
+        <div className="mt-3">
+          <TeamSection
+            leagueId={league.id}
+            userId={session.user.id}
+            teams={league.teams.map((t) => ({
+              id: t.id,
+              name: t.name,
+              members: t.members.map((m) => ({
+                id: m.id,
+                userId: m.user.id,
+                username: m.user.username,
+              })),
+            }))}
+            myTeamId={myMembership?.teamId ?? null}
+            isSetup={league.phase === "SETUP"}
+          />
         </div>
       </div>
 

@@ -43,9 +43,13 @@ export async function POST(
       playerId: league.currentPlayer!,
       userId: session.user.id,
       leagueId,
+      teamId: validation.teamId,
       amount,
     },
-    include: { user: { select: { username: true } } },
+    include: {
+      user: { select: { username: true } },
+      team: { select: { name: true } },
+    },
   });
 
   auctionEmitter.emit(leagueId, "bid-placed", {
@@ -53,6 +57,8 @@ export async function POST(
     playerId: league.currentPlayer,
     userId: session.user.id,
     username: bid.user.username,
+    teamId: bid.teamId,
+    teamName: bid.team?.name ?? null,
     amount: bid.amount,
   });
 

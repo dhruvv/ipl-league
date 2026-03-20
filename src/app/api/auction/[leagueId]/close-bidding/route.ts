@@ -44,15 +44,18 @@ export async function POST(
   const highestBid = await prisma.bid.findFirst({
     where: { playerId: league.currentPlayer, leagueId },
     orderBy: { amount: "desc" },
-    include: { user: { select: { username: true } } },
+    include: {
+      user: { select: { username: true } },
+      team: { select: { id: true, name: true } },
+    },
   });
 
-  if (highestBid) {
+  if (highestBid && highestBid.teamId) {
     await prisma.player.update({
       where: { id: league.currentPlayer },
       data: {
         status: "SOLD",
-        soldTo: highestBid.userId,
+        soldToTeamId: highestBid.teamId,
         soldPrice: highestBid.amount,
       },
     });
@@ -61,14 +64,16 @@ export async function POST(
       playerId: player.id,
       playerName: player.name,
       result: "SOLD",
-      soldTo: highestBid.userId,
+      soldToTeamId: highestBid.teamId,
+      teamName: highestBid.team?.name ?? "Unknown",
       buyerName: highestBid.user.username,
       soldPrice: highestBid.amount,
     });
 
     return NextResponse.json({
       result: "SOLD",
-      soldTo: highestBid.userId,
+      soldToTeamId: highestBid.teamId,
+      teamName: highestBid.team?.name ?? "Unknown",
       buyerName: highestBid.user.username,
       soldPrice: highestBid.amount,
     });
