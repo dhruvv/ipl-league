@@ -8,8 +8,9 @@
 | League CRUD (create, detail, config) | Done |
 | Magic invite links (`/join/[code]`) | Done |
 | Player import (Google Sheet URL + CSV upload) | Done |
-| Pot-based auction (auctioneer controls, SSE) | Planned |
-| Live bidding (real-time via SSE) | Planned |
+| Pot-based auction (auctioneer controls, SSE) | Done |
+| Live bidding (real-time via SSE) | Done |
+| Role promotion (ADMIN role, promote/demote) | Done |
 | CricAPI integration (ball-by-ball data) | Planned |
 | Fantasy scoring engine (standard IPL rules) | Planned |
 | Leaderboard / team pages / match views | Planned |
@@ -178,15 +179,80 @@ sequenceDiagram
 
 ### Key API Routes (Auction Phase)
 
-- `POST /api/auction/[leagueId]/select-pot` -- Auctioneer selects a pot to auction
-- `POST /api/auction/[leagueId]/open-bidding` -- Open bidding on current player
-- `POST /api/auction/[leagueId]/close-bidding` -- Close bidding, assign winner
-- `POST /api/auction/[leagueId]/bid` -- Place a bid (validates budget + overseas cap)
-- `POST /api/auction/[leagueId]/skip` -- Skip current player
-- `POST /api/auction/[leagueId]/undo` -- Undo last sale
-- `POST /api/auction/[leagueId]/next` -- Advance to next player in pot
-- `POST /api/auction/[leagueId]/prev` -- Go back to previous player in pot
-- `GET  /api/auction/[leagueId]/stream` -- SSE endpoint
+| Route | Auth | Description |
+|---|---|---|
+| `POST /api/auction/[leagueId]/start` | OWNER/ADMIN | Transition from SETUP to AUCTION_ACTIVE |
+| `POST /api/auction/[leagueId]/select-pot` | OWNER/ADMIN | Set current pot, load first player |
+| `POST /api/auction/[leagueId]/next` | OWNER/ADMIN | Advance to next player in pot |
+| `POST /api/auction/[leagueId]/prev` | OWNER/ADMIN | Go back to previous player in pot |
+| `POST /api/auction/[leagueId]/open-bidding` | OWNER/ADMIN | Set player status to BIDDING_OPEN |
+| `POST /api/auction/[leagueId]/close-bidding` | OWNER/ADMIN | Close bidding, mark SOLD/UNSOLD |
+| `POST /api/auction/[leagueId]/skip` | OWNER/ADMIN | Skip current player (mark UNSOLD) |
+| `POST /api/auction/[leagueId]/undo` | OWNER/ADMIN | Reverse last sale |
+| `POST /api/auction/[leagueId]/bid` | Any member | Place a bid (validates budget + overseas cap) |
+| `GET /api/auction/[leagueId]/stream` | Any member | SSE endpoint for real-time updates |
+| `GET /api/auction/[leagueId]/state` | Any member | REST snapshot of full auction state |
+| `POST /api/leagues/[id]/members/[memberId]/role` | OWNER/ADMIN | Promote/demote member role |
+
+### Auction Implementation Details
+
+#### Roles
+
+The `MemberRole` enum has three values:
+
+- **OWNER** -- full control: create league, import players, manage auction, promote/demote anyone
+- **ADMIN** -- auction control: select pot, open/close bidding, skip, undo, promote members to ADMIN
+- **MEMBER** -- can place bids only
+
+Owners and admins can promote members to ADMIN from the league detail page or the auction admin controls. An OWNER's role cannot be changed.
+
+#### Real-Time Architecture (SSE)
+
+```mermaid
+sequenceDiagram
+    participant Admin as Admin Browser
+    participant API as API Route
+    participant Emitter as AuctionEmitter
+    participant SSE as SSE Stream
+    participant Bidder as Bidder Browser
+
+    Admin->>API: POST /open-bidding
+    API->>API: Update DB
+    API->>Emitter: emit "bidding-open"
+    Emitter->>SSE: broadcast to league
+    SSE->>Admin: event: bidding-open
+    SSE->>Bidder: event: bidding-open
+    Bidder->>API: POST /bid
+    API->>API: Validate + save
+    API->>Emitter: emit "bid-placed"
+    Emitter->>SSE: broadcast
+    SSE->>Admin: event: bid-placed
+    SSE->>Bidder: event: bid-placed
+```
+
+- **Event emitter**: `src/lib/auction-events.ts` -- singleton `AuctionEmitter` class wrapping Node's `EventEmitter`, scoped per league ID. Each SSE connection subscribes to its league channel.
+- **SSE endpoint**: `GET /api/auction/[leagueId]/stream` -- returns a `ReadableStream` with `text/event-stream` content type. Sends a `state-sync` event on initial connect, then streams incremental events. Includes 15-second keepalive pings.
+- **Event types**: `auction-started`, `pot-selected`, `player-active`, `bidding-open`, `bid-placed`, `bidding-closed`, `player-skipped`, `sale-undone`, `state-sync`
+
+#### Client-Side State Management
+
+The auction page (`/leagues/[id]/auction`) uses a single `useReducer` to manage all auction state, updated from SSE events:
+
+- `auction-view.tsx` -- top-level client component, establishes SSE, dispatches events to reducer
+- `auction-admin-controls.tsx` -- pot selector, bid controls, member management (OWNER/ADMIN only)
+- `player-card.tsx` -- current player details, highest bid, status badge
+- `bid-panel.tsx` -- amount input, quick-bid buttons, budget/overseas-cap warnings
+- `team-sidebar.tsx` -- personal team stats, all-teams budget tracker
+- `auction-log.tsx` -- scrollable feed of completed sales
+
+#### Shared Helpers
+
+`src/lib/auction-helpers.ts` provides:
+
+- `requireAuctionAdmin()` -- checks OWNER/ADMIN role
+- `getAuctionState()` -- full state snapshot (league, players, bids, budgets, sold log)
+- `calculateBudgets()` -- per-member budget, spent, remaining, overseas count
+- `validateBid()` -- checks bid amount, budget, overseas cap
 
 ---
 

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { InviteLink } from "./invite-link";
 import { PlayerImport } from "./player-import";
+import { RoleToggle } from "./role-toggle";
 
 export default async function LeagueDetailPage({
   params,
@@ -34,9 +35,12 @@ export default async function LeagueDetailPage({
   const isMember = league.members.some((m) => m.userId === session.user.id);
   if (!isMember) notFound();
 
-  const isOwner = league.members.some(
-    (m) => m.userId === session.user.id && m.role === "OWNER"
+  const myMembership = league.members.find(
+    (m) => m.userId === session.user.id
   );
+  const isOwner = myMembership?.role === "OWNER";
+  const isAdmin =
+    myMembership?.role === "OWNER" || myMembership?.role === "ADMIN";
 
   const pots = [...new Set(league.players.map((p) => p.pot))].sort();
 
@@ -81,29 +85,66 @@ export default async function LeagueDetailPage({
         </div>
       </div>
 
+      {(league.phase === "AUCTION_ACTIVE" ||
+        (isAdmin && league.phase === "SETUP" && league._count.players > 0)) && (
+        <div className="mt-8">
+          <Link
+            href={`/leagues/${id}/auction`}
+            className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-indigo-500"
+          >
+            {league.phase === "AUCTION_ACTIVE"
+              ? "Enter Auction"
+              : "Start Auction"}
+            <span aria-hidden="true">&rarr;</span>
+          </Link>
+        </div>
+      )}
+
       <div className="mt-8">
         <h2 className="text-lg font-semibold">
           Members ({league.members.length})
         </h2>
         <div className="mt-3 space-y-2">
-          {league.members.map((m) => (
-            <div
-              key={m.id}
-              className="flex items-center justify-between rounded-lg border border-gray-800 bg-gray-900 px-4 py-3"
-            >
-              <div>
-                <span className="font-medium">{m.user.username}</span>
-                <span className="ml-2 text-sm text-gray-500">{m.user.email}</span>
+          {league.members.map((m) => {
+            const roleColors: Record<string, string> = {
+              OWNER: "bg-amber-900/50 text-amber-300",
+              ADMIN: "bg-indigo-900/50 text-indigo-300",
+              MEMBER: "bg-gray-800 text-gray-400",
+            };
+            return (
+              <div
+                key={m.id}
+                className="flex items-center justify-between rounded-lg border border-gray-800 bg-gray-900 px-4 py-3"
+              >
+                <div>
+                  <span className="font-medium">{m.user.username}</span>
+                  <span className="ml-2 text-sm text-gray-500">
+                    {m.user.email}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span
+                    className={`rounded px-2 py-0.5 text-xs capitalize ${
+                      roleColors[m.role] ?? roleColors.MEMBER
+                    }`}
+                  >
+                    {m.role.toLowerCase()}
+                  </span>
+                  {isAdmin && m.role !== "OWNER" && (
+                    <RoleToggle
+                      leagueId={league.id}
+                      memberId={m.id}
+                      currentRole={m.role}
+                    />
+                  )}
+                </div>
               </div>
-              <span className="rounded bg-gray-800 px-2 py-0.5 text-xs capitalize text-gray-400">
-                {m.role.toLowerCase()}
-              </span>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
 
-      {isOwner && (
+      {isAdmin && (
         <div className="mt-8">
           <h2 className="text-lg font-semibold">Invite Friends</h2>
           <p className="mt-1 text-sm text-gray-400">
@@ -120,7 +161,7 @@ export default async function LeagueDetailPage({
           Players ({league._count.players})
         </h2>
 
-        {isOwner && league.phase === "SETUP" && (
+        {isAdmin && league.phase === "SETUP" && (
           <div className="mt-4 rounded-xl border border-gray-800 bg-gray-900 p-5">
             <h3 className="text-sm font-medium text-gray-300">Import Players</h3>
             <p className="mt-1 text-xs text-gray-500">

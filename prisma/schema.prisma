@@ -34,8 +34,9 @@ model League {
   overseasCap   Int         @default(4)
   sheetUrl      String?
   scoringRules  Json?
-  currentPot    String?
-  currentPlayer String?
+  currentPot          String?
+  currentPlayer       String?
+  currentPlayerIndex  Int         @default(0)
   createdById   String
   createdBy     User        @relation("LeagueCreator", fields: [createdById], references: [id])
   createdAt     DateTime    @default(now())
@@ -68,6 +69,7 @@ model LeagueMember {
 
 enum MemberRole {
   OWNER
+  ADMIN
   MEMBER
 }
 
