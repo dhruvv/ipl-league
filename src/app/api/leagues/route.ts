@@ -4,11 +4,25 @@ import { prisma } from "@/lib/prisma";
 
 export async function POST(req: Request) {
   const session = await auth();
-  if (!session?.user) {
+  if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   try {
+    const user = await prisma.user.findUnique({
+      where: { id: session.user.id },
+    });
+
+    if (!user) {
+      return NextResponse.json(
+        {
+          error:
+            "Your session references a user that no longer exists. Please sign out and sign back in.",
+        },
+        { status: 401 }
+      );
+    }
+
     const { name, description, budget, scoringTopN, overseasCap } =
       await req.json();
 
@@ -26,10 +40,10 @@ export async function POST(req: Request) {
         budget: budget ?? 10000000,
         scoringTopN: scoringTopN ?? 7,
         overseasCap: overseasCap ?? 4,
-        createdById: session.user.id,
+        createdById: user.id,
         members: {
           create: {
-            userId: session.user.id,
+            userId: user.id,
             role: "OWNER",
           },
         },
@@ -37,10 +51,10 @@ export async function POST(req: Request) {
     });
 
     return NextResponse.json(league, { status: 201 });
-  } catch {
-    return NextResponse.json(
-      { error: "Failed to create league" },
-      { status: 500 }
-    );
+  } catch (err) {
+    console.error("League creation failed:", err);
+    const message =
+      err instanceof Error ? err.message : "Failed to create league";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
