@@ -2,6 +2,9 @@ import { EventEmitter } from "events";
 
 export type AuctionEventType =
   | "auction-started"
+  | "auction-paused"
+  | "auction-resumed"
+  | "auction-ended"
   | "pot-selected"
   | "player-active"
   | "bidding-open"

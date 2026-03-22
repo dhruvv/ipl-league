@@ -8,58 +8,63 @@ export async function POST(
   _req: Request,
   { params }: { params: Promise<{ leagueId: string }> }
 ) {
-  const { leagueId } = await params;
-  const session = await auth();
-  if (!session?.user?.id)
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  try {
+    const { leagueId } = await params;
+    const session = await auth();
+    if (!session?.user?.id)
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const admin = await requireAuctionAdmin(leagueId, session.user.id);
-  if (!admin)
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    const admin = await requireAuctionAdmin(leagueId, session.user.id);
+    if (!admin)
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-  const league = await prisma.league.findUniqueOrThrow({
-    where: { id: leagueId },
-    select: { phase: true, currentPot: true, currentPlayerIndex: true },
-  });
+    const league = await prisma.league.findUniqueOrThrow({
+      where: { id: leagueId },
+      select: { phase: true, currentPot: true, currentPlayerIndex: true },
+    });
 
-  if (league.phase !== "AUCTION_ACTIVE" || !league.currentPot) {
-    return NextResponse.json(
-      { error: "Select a pot first" },
-      { status: 400 }
-    );
-  }
+    if (league.phase !== "AUCTION_ACTIVE" || !league.currentPot) {
+      return NextResponse.json(
+        { error: "Select a pot first" },
+        { status: 400 }
+      );
+    }
 
-  const prevIndex = league.currentPlayerIndex - 1;
-  if (prevIndex < 0) {
-    return NextResponse.json(
-      { error: "Already at first player" },
-      { status: 400 }
-    );
-  }
+    const prevIndex = league.currentPlayerIndex - 1;
+    if (prevIndex < 0) {
+      return NextResponse.json(
+        { error: "Already at first player" },
+        { status: 400 }
+      );
+    }
 
-  const potPlayers = await prisma.player.findMany({
-    where: { leagueId, pot: league.currentPot },
-    orderBy: [{ slNo: "asc" }, { name: "asc" }],
-    select: { id: true },
-  });
+    const potPlayers = await prisma.player.findMany({
+      where: { leagueId, pot: league.currentPot },
+      orderBy: [{ slNo: "asc" }, { name: "asc" }],
+      select: { id: true },
+    });
 
-  const prevPlayer = potPlayers[prevIndex];
+    const prevPlayer = potPlayers[prevIndex];
 
-  await prisma.league.update({
-    where: { id: leagueId },
-    data: {
+    await prisma.league.update({
+      where: { id: leagueId },
+      data: {
+        currentPlayerIndex: prevIndex,
+        currentPlayer: prevPlayer.id,
+      },
+    });
+
+    auctionEmitter.emit(leagueId, "player-active", {
       currentPlayerIndex: prevIndex,
-      currentPlayer: prevPlayer.id,
-    },
-  });
+      currentPlayerId: prevPlayer.id,
+    });
 
-  auctionEmitter.emit(leagueId, "player-active", {
-    currentPlayerIndex: prevIndex,
-    currentPlayerId: prevPlayer.id,
-  });
-
-  return NextResponse.json({
-    currentPlayerIndex: prevIndex,
-    currentPlayerId: prevPlayer.id,
-  });
+    return NextResponse.json({
+      currentPlayerIndex: prevIndex,
+      currentPlayerId: prevPlayer.id,
+    });
+  } catch (err) {
+    console.error("POST /api/auction/[leagueId]/prev error:", err);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  }
 }

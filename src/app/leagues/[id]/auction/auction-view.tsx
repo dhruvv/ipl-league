@@ -81,6 +81,9 @@ type AuctionAction =
   | { type: "STATE_SYNC"; payload: AuctionState }
   | { type: "SET_CONNECTED"; connected: boolean }
   | { type: "AUCTION_STARTED"; phase: string }
+  | { type: "AUCTION_PAUSED" }
+  | { type: "AUCTION_RESUMED" }
+  | { type: "AUCTION_ENDED" }
   | {
       type: "POT_SELECTED";
       pot: string;
@@ -149,6 +152,21 @@ function auctionReducer(
 
     case "AUCTION_STARTED":
       return { ...state, phase: action.phase };
+
+    case "AUCTION_PAUSED":
+      return { ...state, phase: "AUCTION_PAUSED" };
+
+    case "AUCTION_RESUMED":
+      return { ...state, phase: "AUCTION_ACTIVE" };
+
+    case "AUCTION_ENDED":
+      return {
+        ...state,
+        phase: "AUCTION_COMPLETE",
+        currentPlayer: null,
+        currentBids: [],
+        upcomingPlayers: [],
+      };
 
     case "POT_SELECTED": {
       const potPlayers = state.players.filter(
@@ -368,112 +386,159 @@ export function AuctionView({
   const [state, dispatch] = useReducer(auctionReducer, initialState);
 
   useEffect(() => {
-    const eventSource = new EventSource(
-      `/api/auction/${leagueId}/stream`
-    );
+    let es: EventSource | null = null;
+    let retryDelay = 1000;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let disposed = false;
 
-    eventSource.addEventListener("state-sync", (e) => {
-      const data = JSON.parse(e.data);
-      dispatch({
-        type: "STATE_SYNC",
-        payload: parseStatePayload(data),
+    function safeParse(raw: string): Record<string, unknown> | null {
+      try {
+        return JSON.parse(raw);
+      } catch {
+        console.error("[AuctionSSE] Failed to parse event data:", raw);
+        return null;
+      }
+    }
+
+    function connect() {
+      if (disposed) return;
+      es = new EventSource(`/api/auction/${leagueId}/stream`);
+
+      es.addEventListener("state-sync", (e) => {
+        const data = safeParse(e.data);
+        if (!data) return;
+        dispatch({ type: "STATE_SYNC", payload: parseStatePayload(data) });
       });
-    });
 
-    eventSource.addEventListener("auction-started", (e) => {
-      const data = JSON.parse(e.data);
-      dispatch({ type: "AUCTION_STARTED", phase: data.phase });
-    });
-
-    eventSource.addEventListener("pot-selected", (e) => {
-      const data = JSON.parse(e.data);
-      dispatch({
-        type: "POT_SELECTED",
-        pot: data.pot,
-        currentPlayerIndex: data.currentPlayerIndex,
-        currentPlayerId: data.currentPlayerId,
+      es.addEventListener("auction-started", (e) => {
+        const data = safeParse(e.data);
+        if (!data) return;
+        dispatch({ type: "AUCTION_STARTED", phase: data.phase as string });
       });
-    });
 
-    eventSource.addEventListener("player-active", (e) => {
-      const data = JSON.parse(e.data);
-      dispatch({
-        type: "PLAYER_ACTIVE",
-        currentPlayerIndex: data.currentPlayerIndex,
-        currentPlayerId: data.currentPlayerId,
+      es.addEventListener("auction-paused", () => {
+        dispatch({ type: "AUCTION_PAUSED" });
       });
-    });
 
-    eventSource.addEventListener("bidding-open", (e) => {
-      const data = JSON.parse(e.data);
-      dispatch({ type: "BIDDING_OPEN", playerId: data.playerId });
-    });
-
-    eventSource.addEventListener("bid-placed", (e) => {
-      const data = JSON.parse(e.data);
-      dispatch({
-        type: "BID_PLACED",
-        bid: {
-          id: data.bidId,
-          amount: data.amount,
-          userId: data.userId,
-          username: data.username,
-          teamId: data.teamId ?? null,
-          teamName: data.teamName ?? null,
-          createdAt: new Date().toISOString(),
-        },
+      es.addEventListener("auction-resumed", () => {
+        dispatch({ type: "AUCTION_RESUMED" });
       });
-    });
 
-    eventSource.addEventListener("bidding-closed", (e) => {
-      const data = JSON.parse(e.data);
-      dispatch({
-        type: "BIDDING_CLOSED",
-        playerId: data.playerId,
-        result: data.result,
-        soldToTeamId: data.soldToTeamId,
-        teamName: data.teamName,
-        buyerName: data.buyerName,
-        soldPrice: data.soldPrice,
-        playerName: data.playerName,
+      es.addEventListener("auction-ended", () => {
+        dispatch({ type: "AUCTION_ENDED" });
       });
-    });
 
-    eventSource.addEventListener("player-skipped", (e) => {
-      const data = JSON.parse(e.data);
-      dispatch({ type: "PLAYER_SKIPPED", playerId: data.playerId });
-    });
-
-    eventSource.addEventListener("sale-undone", (e) => {
-      const data = JSON.parse(e.data);
-      dispatch({
-        type: "SALE_UNDONE",
-        playerId: data.playerId,
-        playerName: data.playerName,
+      es.addEventListener("pot-selected", (e) => {
+        const data = safeParse(e.data);
+        if (!data) return;
+        dispatch({
+          type: "POT_SELECTED",
+          pot: data.pot as string,
+          currentPlayerIndex: data.currentPlayerIndex as number,
+          currentPlayerId: data.currentPlayerId as string,
+        });
       });
-    });
 
-    eventSource.onopen = () => {
-      dispatch({ type: "SET_CONNECTED", connected: true });
-    };
+      es.addEventListener("player-active", (e) => {
+        const data = safeParse(e.data);
+        if (!data) return;
+        dispatch({
+          type: "PLAYER_ACTIVE",
+          currentPlayerIndex: data.currentPlayerIndex as number,
+          currentPlayerId: data.currentPlayerId as string,
+        });
+      });
 
-    eventSource.onerror = () => {
-      dispatch({ type: "SET_CONNECTED", connected: false });
-    };
+      es.addEventListener("bidding-open", (e) => {
+        const data = safeParse(e.data);
+        if (!data) return;
+        dispatch({ type: "BIDDING_OPEN", playerId: data.playerId as string });
+      });
+
+      es.addEventListener("bid-placed", (e) => {
+        const data = safeParse(e.data);
+        if (!data) return;
+        dispatch({
+          type: "BID_PLACED",
+          bid: {
+            id: data.bidId as string,
+            amount: data.amount as number,
+            userId: data.userId as string,
+            username: data.username as string,
+            teamId: (data.teamId as string) ?? null,
+            teamName: (data.teamName as string) ?? null,
+            createdAt: new Date().toISOString(),
+          },
+        });
+      });
+
+      es.addEventListener("bidding-closed", (e) => {
+        const data = safeParse(e.data);
+        if (!data) return;
+        dispatch({
+          type: "BIDDING_CLOSED",
+          playerId: data.playerId as string,
+          result: data.result as string,
+          soldToTeamId: data.soldToTeamId as string | undefined,
+          teamName: data.teamName as string | undefined,
+          buyerName: data.buyerName as string | undefined,
+          soldPrice: data.soldPrice as number | undefined,
+          playerName: data.playerName as string | undefined,
+        });
+      });
+
+      es.addEventListener("player-skipped", (e) => {
+        const data = safeParse(e.data);
+        if (!data) return;
+        dispatch({ type: "PLAYER_SKIPPED", playerId: data.playerId as string });
+      });
+
+      es.addEventListener("sale-undone", (e) => {
+        const data = safeParse(e.data);
+        if (!data) return;
+        dispatch({
+          type: "SALE_UNDONE",
+          playerId: data.playerId as string,
+          playerName: data.playerName as string,
+        });
+      });
+
+      es.onopen = () => {
+        retryDelay = 1000;
+        dispatch({ type: "SET_CONNECTED", connected: true });
+      };
+
+      es.onerror = () => {
+        dispatch({ type: "SET_CONNECTED", connected: false });
+        es?.close();
+        if (!disposed) {
+          retryTimer = setTimeout(connect, retryDelay);
+          retryDelay = Math.min(retryDelay * 2, 30_000);
+        }
+      };
+    }
+
+    connect();
 
     return () => {
-      eventSource.close();
+      disposed = true;
+      es?.close();
+      if (retryTimer) clearTimeout(retryTimer);
     };
   }, [leagueId]);
 
   const refreshState = useCallback(async () => {
-    const res = await fetch(`/api/auction/${leagueId}/state`);
-    if (res.ok) {
-      const data = await res.json();
-      dispatch({
-        type: "FULL_REFRESH",
-        payload: parseStatePayload(data),
-      });
+    try {
+      const res = await fetch(`/api/auction/${leagueId}/state`);
+      if (res.ok) {
+        const data = await res.json();
+        dispatch({
+          type: "FULL_REFRESH",
+          payload: parseStatePayload(data),
+        });
+      }
+    } catch (err) {
+      console.error("[AuctionView] Failed to refresh state:", err);
     }
   }, [leagueId]);
 
@@ -513,8 +578,15 @@ export function AuctionView({
           </div>
         )}
 
-        {state.phase === "AUCTION_ACTIVE" && (
+        {(state.phase === "AUCTION_ACTIVE" ||
+          state.phase === "AUCTION_PAUSED") && (
           <div className="mt-4 space-y-4">
+            {state.phase === "AUCTION_PAUSED" && (
+              <div className="rounded-lg border border-amber-700 bg-amber-900/40 px-4 py-3 text-sm font-medium text-amber-300">
+                Auction is paused
+              </div>
+            )}
+
             <PlayerCard
               player={state.currentPlayer}
               highestBid={highestBid}
@@ -527,17 +599,18 @@ export function AuctionView({
               <UpcomingPlayers players={state.upcomingPlayers} />
             )}
 
-            {state.currentPlayer?.status === "BIDDING_OPEN" && (
-              <BidPanel
-                leagueId={leagueId}
-                currentPlayer={state.currentPlayer}
-                highestBid={highestBid}
-                myTeamBudget={myTeamBudget ?? null}
-                myTeamName={myTeam?.name ?? null}
-                overseasCap={state.overseasCap}
-                minBidIncrement={state.minBidIncrement}
-              />
-            )}
+            {state.currentPlayer?.status === "BIDDING_OPEN" &&
+              state.phase === "AUCTION_ACTIVE" && (
+                <BidPanel
+                  leagueId={leagueId}
+                  currentPlayer={state.currentPlayer}
+                  highestBid={highestBid}
+                  myTeamBudget={myTeamBudget ?? null}
+                  myTeamName={myTeam?.name ?? null}
+                  overseasCap={state.overseasCap}
+                  minBidIncrement={state.minBidIncrement}
+                />
+              )}
 
             {state.currentBids.length > 0 && (
               <div className="rounded-xl border border-gray-800 bg-gray-900 p-4">

@@ -2,7 +2,7 @@
 
 IPL-style player auction and fantasy league platform for a group of friends.
 
-See [PLAN.md](PLAN.md) for the full architecture plan.
+See [PLAN.md](PLAN.md) for the full architecture plan and [DEPLOYMENT.md](DEPLOYMENT.md) for production setup.
 
 ## Architecture
 
@@ -16,7 +16,7 @@ graph TB
 
     Browser["Browsers"] -->|"HTTP + SSE"| NextJS
     GoogleSheets["Google Sheets"] -.->|"CSV import"| NextJS
-    CricAPI["CricAPI"] -.->|"Ball-by-ball scoring<br/>(Phase 2)"| NextJS
+    CricAPI["CricAPI"] -.->|"Ball-by-ball scoring"| NextJS
 ```
 
 ## Features
@@ -33,17 +33,27 @@ graph TB
 | Team management (create, join, shared budget) | Done |
 | Team-based bidding + configurable increment | Done |
 | Upcoming players preview (next 5) | Done |
-| CricAPI ball-by-ball scoring | Planned |
-| Fantasy leaderboard + team pages | Planned |
-| Active-passive failover | Planned |
+| Auction pause / resume / end | Done |
+| CricAPI integration (scorecard + squad) | Done |
+| Fantasy scoring engine (configurable rules) | Done |
+| Background scoring poller (live matches) | Done |
+| Leaderboard with top-N per match | Done |
+| Match list + detail pages | Done |
+| Player-to-CricAPI mapping (fuzzy match UI) | Done |
+| Production migrations (Prisma Migrate) | Done |
+| Docker deployment (Dockerfile + compose) | Done |
+| Health check endpoint | Done |
+| Configurable Postgres port | Done |
+| Active-passive failover (Cloudflare) | Documented |
 | Trading between teams | Future |
 
 ## Tech Stack
 
 - **Next.js 16** (App Router, TypeScript, Tailwind CSS v4)
 - **PostgreSQL 15** (via Docker)
-- **Prisma 7** (ORM with PG driver adapter)
+- **Prisma 7** (ORM with PG driver adapter, Prisma Migrate)
 - **NextAuth.js v5** (credentials-based JWT auth)
+- **CricAPI** (cricketdata.org, paid plan for live scoring)
 
 ## Project Structure
 
@@ -53,17 +63,28 @@ src/
     (auth)/login/         Login page
     (auth)/register/      Register page
     api/auth/             NextAuth handlers + registration endpoint
+    api/health/           Health check endpoint (for load balancer)
     api/leagues/          League CRUD API
     api/leagues/[id]/players/import/   Player import API
+    api/leagues/[id]/players/map/      Player-to-CricAPI mapping API
     api/leagues/[id]/members/[memberId]/role/  Role promotion API
     api/leagues/[id]/teams/            Team CRUD (create, join, leave, detail)
-    api/auction/[leagueId]/  Auction control APIs (10 endpoints)
+    api/leagues/[id]/phase/            League phase transitions
+    api/leagues/[id]/matches/          Match list + sync API
+    api/leagues/[id]/matches/[matchId]/  Match detail API
+    api/leagues/[id]/standings/        Leaderboard API
+    api/leagues/[id]/scoring/stream/   SSE for live scoring
+    api/auction/[leagueId]/  Auction control APIs (13 endpoints)
     join/[code]/          Magic invite link handler
     leagues/              League list
     leagues/create/       Create league form
     leagues/[id]/         League detail (members, teams, players, import UI)
     leagues/[id]/auction/ Live auction page (admin + bidder views)
     leagues/[id]/teams/[teamId]/  Team detail page (roster, budget)
+    leagues/[id]/standings/  Fantasy leaderboard
+    leagues/[id]/matches/    Match list
+    leagues/[id]/matches/[matchId]/  Match detail with player performances
+    leagues/[id]/players/map/  Admin player mapping UI
   lib/
     auth.ts               NextAuth config (Prisma + bcrypt)
     auth.config.ts        Edge-safe auth config (middleware)
@@ -72,15 +93,22 @@ src/
     sheets.ts             Google Sheets URL converter + fetcher
     auction-events.ts     SSE event emitter (per-league broadcast)
     auction-helpers.ts    Auction validation + state helpers
+    cricapi.ts            CricAPI client (scorecard, squad, series)
+    scoring.ts            Fantasy scoring engine + rules
+    scoring-events.ts     SSE emitter for live scoring
+    scoring-poller.ts     Background poller for live match updates
+    player-matcher.ts     Fuzzy matching (Levenshtein) for player mapping
+  instrumentation.ts      Starts scoring poller on server boot
 prisma/
   schema.prisma           Database schema (11 models)
+  migrations/             Prisma Migrate migration history
 ```
 
 ## Getting Started
 
 ### Prerequisites
 
-- Node.js 20+
+- [Bun](https://bun.sh) 1.x+
 - Docker (for PostgreSQL)
 
 ### Setup
@@ -88,12 +116,12 @@ prisma/
 ```bash
 git clone <repo-url>
 cd player-auction
-npm install
+bun install
 docker compose up -d
 cp .env.example .env
-npx prisma generate
-npx prisma db push
-npm run dev
+bunx prisma generate
+bunx prisma migrate dev
+bun run dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000)
@@ -125,17 +153,33 @@ Expected columns: `Name`, `Base Price`, `Pot` (required), plus optional `Sl. No`
 1. Import players, invite all members, and ensure everyone has joined a team
 2. Click "Start Auction" on the league page (or enter the auction view)
 3. **Admin controls**: Select a pot, navigate players, open/close bidding, skip, undo
-4. **Bidder view**: Place bids when bidding is open, see upcoming players, track team budget in the sidebar
-5. Promote members to Admin from the league page or auction controls to let them co-manage
+4. **Pause/Resume**: Admins can pause/resume the auction at any time
+5. **End Auction**: Admins can end the auction early; remaining players are marked UNSOLD
+6. **Bidder view**: Place bids when bidding is open, see upcoming players, track team budget in the sidebar
+7. Promote members to Admin from the league page or auction controls to let them co-manage
+
+### Starting the Fantasy League
+
+1. After the auction completes, click "Start League Phase"
+2. **Sync Matches**: Enter the CricAPI series ID to import the IPL match schedule
+3. **Map Players**: Use the mapping UI to link league players to CricAPI player IDs
+4. The scoring poller runs automatically, updating scores every 30 seconds during live matches
+5. View the **Leaderboard** for team standings and **Matches** for individual match details
+
+### Production Deployment
+
+See [DEPLOYMENT.md](DEPLOYMENT.md) for Docker deployment, configurable Postgres port, and Cloudflare failover setup.
 
 ## Scripts
 
 | Command | Description |
 |---|---|
-| `npm run dev` | Start development server |
-| `npm run build` | Production build |
-| `npm run start` | Start production server |
-| `npm run db:generate` | Regenerate Prisma client |
-| `npm run db:push` | Push schema to database |
-| `npm run db:migrate` | Run database migrations |
-| `npm run db:studio` | Open Prisma Studio GUI |
+| `bun run dev` | Start development server |
+| `bun run build` | Production build |
+| `bun run start` | Start production server |
+| `bun run db:generate` | Regenerate Prisma client |
+| `bun run db:push` | Push schema (dev only, no migration) |
+| `bun run db:migrate` | Create + apply migration (dev) |
+| `bun run db:migrate:deploy` | Apply pending migrations (production) |
+| `bun run db:migrate:reset` | Reset database (dev only, destroys data) |
+| `bun run db:studio` | Open Prisma Studio GUI |

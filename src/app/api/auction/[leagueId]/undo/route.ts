@@ -8,47 +8,52 @@ export async function POST(
   _req: Request,
   { params }: { params: Promise<{ leagueId: string }> }
 ) {
-  const { leagueId } = await params;
-  const session = await auth();
-  if (!session?.user?.id)
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  try {
+    const { leagueId } = await params;
+    const session = await auth();
+    if (!session?.user?.id)
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const admin = await requireAuctionAdmin(leagueId, session.user.id);
-  if (!admin)
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    const admin = await requireAuctionAdmin(leagueId, session.user.id);
+    if (!admin)
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-  const lastSold = await prisma.player.findFirst({
-    where: { leagueId, status: "SOLD" },
-    orderBy: { createdAt: "desc" },
-    select: { id: true, name: true, soldToTeamId: true, soldPrice: true },
-  });
+    const lastSold = await prisma.player.findFirst({
+      where: { leagueId, status: "SOLD" },
+      orderBy: { createdAt: "desc" },
+      select: { id: true, name: true, soldToTeamId: true, soldPrice: true },
+    });
 
-  if (!lastSold) {
-    return NextResponse.json(
-      { error: "No sales to undo" },
-      { status: 400 }
-    );
+    if (!lastSold) {
+      return NextResponse.json(
+        { error: "No sales to undo" },
+        { status: 400 }
+      );
+    }
+
+    await prisma.player.update({
+      where: { id: lastSold.id },
+      data: { status: "QUEUED", soldToTeamId: null, soldPrice: null },
+    });
+
+    await prisma.bid.deleteMany({
+      where: { playerId: lastSold.id, leagueId },
+    });
+
+    auctionEmitter.emit(leagueId, "sale-undone", {
+      playerId: lastSold.id,
+      playerName: lastSold.name,
+      previousTeamId: lastSold.soldToTeamId,
+      previousPrice: lastSold.soldPrice,
+    });
+
+    return NextResponse.json({
+      undone: true,
+      playerId: lastSold.id,
+      playerName: lastSold.name,
+    });
+  } catch (err) {
+    console.error("POST /api/auction/[leagueId]/undo error:", err);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
-
-  await prisma.player.update({
-    where: { id: lastSold.id },
-    data: { status: "QUEUED", soldToTeamId: null, soldPrice: null },
-  });
-
-  await prisma.bid.deleteMany({
-    where: { playerId: lastSold.id, leagueId },
-  });
-
-  auctionEmitter.emit(leagueId, "sale-undone", {
-    playerId: lastSold.id,
-    playerName: lastSold.name,
-    previousTeamId: lastSold.soldToTeamId,
-    previousPrice: lastSold.soldPrice,
-  });
-
-  return NextResponse.json({
-    undone: true,
-    playerId: lastSold.id,
-    playerName: lastSold.name,
-  });
 }

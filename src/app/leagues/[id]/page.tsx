@@ -6,6 +6,7 @@ import { InviteLink } from "./invite-link";
 import { PlayerImport } from "./player-import";
 import { RoleToggle } from "./role-toggle";
 import { TeamSection } from "./team-section";
+import { LeagueActions } from "./league-actions";
 
 export default async function LeagueDetailPage({
   params,
@@ -123,17 +124,30 @@ export default async function LeagueDetailPage({
       </div>
 
       {(league.phase === "AUCTION_ACTIVE" ||
+        league.phase === "AUCTION_PAUSED" ||
         (isAdmin && league.phase === "SETUP" && league._count.players > 0)) && (
         <div className="mt-8">
           <Link
             href={`/leagues/${id}/auction`}
             className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-indigo-500"
           >
-            {league.phase === "AUCTION_ACTIVE"
+            {league.phase === "AUCTION_ACTIVE" || league.phase === "AUCTION_PAUSED"
               ? "Enter Auction"
               : "Start Auction"}
             <span aria-hidden="true">&rarr;</span>
           </Link>
+        </div>
+      )}
+
+      {(league.phase === "AUCTION_COMPLETE" ||
+        league.phase === "LEAGUE_ACTIVE" ||
+        league.phase === "LEAGUE_COMPLETE") && (
+        <div className="mt-8">
+          <LeagueActions
+            leagueId={league.id}
+            phase={league.phase}
+            isAdmin={isAdmin}
+          />
         </div>
       )}
 

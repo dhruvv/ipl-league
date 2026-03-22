@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import type { AuctionState } from "./auction-view";
 
 interface AdminControlsProps {
@@ -23,6 +23,16 @@ export function AdminControls({
 }: AdminControlsProps) {
   const [loading, setLoading] = useState<string | null>(null);
   const [error, setError] = useState("");
+  const [confirmEnd, setConfirmEnd] = useState(false);
+
+  const handleEnd = useCallback(async () => {
+    if (!confirmEnd) {
+      setConfirmEnd(true);
+      return;
+    }
+    setConfirmEnd(false);
+    await adminAction("end");
+  }, [confirmEnd]);
 
   async function adminAction(
     endpoint: string,
@@ -103,9 +113,51 @@ export function AdminControls({
         </div>
       )}
 
-      {state.phase === "AUCTION_ACTIVE" && (
+      {(state.phase === "AUCTION_ACTIVE" ||
+        state.phase === "AUCTION_PAUSED") && (
         <>
           <div className="rounded-xl border border-gray-800 bg-gray-900 p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-medium text-gray-300">
+                Auction Control
+              </h3>
+              <div className="flex gap-2">
+                {state.phase === "AUCTION_ACTIVE" && (
+                  <button
+                    onClick={() => adminAction("pause")}
+                    disabled={loading !== null}
+                    className="rounded-lg bg-amber-700 px-3 py-1.5 text-xs font-medium text-amber-100 hover:bg-amber-600 disabled:opacity-50"
+                  >
+                    {loading === "pause" ? "Pausing..." : "Pause Auction"}
+                  </button>
+                )}
+                {state.phase === "AUCTION_PAUSED" && (
+                  <button
+                    onClick={() => adminAction("resume")}
+                    disabled={loading !== null}
+                    className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
+                  >
+                    {loading === "resume" ? "Resuming..." : "Resume Auction"}
+                  </button>
+                )}
+                <button
+                  onClick={handleEnd}
+                  disabled={loading !== null}
+                  className={`rounded-lg px-3 py-1.5 text-xs font-medium disabled:opacity-50 ${
+                    confirmEnd
+                      ? "bg-red-600 text-white hover:bg-red-500"
+                      : "bg-gray-700 text-gray-300 hover:bg-gray-600"
+                  }`}
+                >
+                  {loading === "end"
+                    ? "Ending..."
+                    : confirmEnd
+                      ? "Confirm End Auction"
+                      : "End Auction"}
+                </button>
+              </div>
+            </div>
+
             <h3 className="mb-3 text-sm font-medium text-gray-300">
               Select Pot
             </h3>
@@ -114,7 +166,7 @@ export function AdminControls({
                 <button
                   key={pot}
                   onClick={() => adminAction("select-pot", { pot })}
-                  disabled={loading !== null}
+                  disabled={loading !== null || state.phase === "AUCTION_PAUSED"}
                   className={`rounded-lg px-3 py-1.5 text-sm font-medium transition ${
                     state.currentPot === pot
                       ? "bg-indigo-600 text-white"
@@ -139,7 +191,9 @@ export function AdminControls({
                 <button
                   onClick={() => adminAction("prev")}
                   disabled={
-                    loading !== null || state.currentPlayerIndex === 0
+                    loading !== null ||
+                    state.currentPlayerIndex === 0 ||
+                    state.phase === "AUCTION_PAUSED"
                   }
                   className="rounded-lg bg-gray-800 px-3 py-2 text-sm text-gray-300 hover:bg-gray-700 disabled:opacity-30"
                 >
@@ -150,7 +204,8 @@ export function AdminControls({
                   disabled={
                     loading !== null ||
                     state.currentPlayerIndex >=
-                      state.potPlayers.length - 1
+                      state.potPlayers.length - 1 ||
+                    state.phase === "AUCTION_PAUSED"
                   }
                   className="rounded-lg bg-gray-800 px-3 py-2 text-sm text-gray-300 hover:bg-gray-700 disabled:opacity-30"
                 >
@@ -159,7 +214,7 @@ export function AdminControls({
 
                 <div className="mx-2 w-px bg-gray-700" />
 
-                {isPlayerActive && (
+                {isPlayerActive && state.phase === "AUCTION_ACTIVE" && (
                   <button
                     onClick={() => adminAction("open-bidding")}
                     disabled={loading !== null}
@@ -169,7 +224,7 @@ export function AdminControls({
                   </button>
                 )}
 
-                {isBiddingOpen && (
+                {isBiddingOpen && state.phase === "AUCTION_ACTIVE" && (
                   <button
                     onClick={() => adminAction("close-bidding")}
                     disabled={loading !== null}
@@ -179,21 +234,25 @@ export function AdminControls({
                   </button>
                 )}
 
-                <button
-                  onClick={() => adminAction("skip")}
-                  disabled={loading !== null || isBiddingOpen}
-                  className="rounded-lg bg-gray-800 px-3 py-2 text-sm text-gray-300 hover:bg-gray-700 disabled:opacity-30"
-                >
-                  Skip
-                </button>
+                {state.phase === "AUCTION_ACTIVE" && (
+                  <>
+                    <button
+                      onClick={() => adminAction("skip")}
+                      disabled={loading !== null || isBiddingOpen}
+                      className="rounded-lg bg-gray-800 px-3 py-2 text-sm text-gray-300 hover:bg-gray-700 disabled:opacity-30"
+                    >
+                      Skip
+                    </button>
 
-                <button
-                  onClick={() => adminAction("undo")}
-                  disabled={loading !== null || state.soldLog.length === 0}
-                  className="rounded-lg bg-amber-700 px-3 py-2 text-sm text-amber-100 hover:bg-amber-600 disabled:opacity-30"
-                >
-                  Undo Last Sale
-                </button>
+                    <button
+                      onClick={() => adminAction("undo")}
+                      disabled={loading !== null || state.soldLog.length === 0}
+                      className="rounded-lg bg-amber-700 px-3 py-2 text-sm text-amber-100 hover:bg-amber-600 disabled:opacity-30"
+                    >
+                      Undo Last Sale
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           )}

@@ -15,10 +15,17 @@
 | Team-based budgets and bidding | Done |
 | Configurable bid increment (default 1 Cr) | Done |
 | Upcoming players preview (next 5) | Done |
-| CricAPI integration (ball-by-ball data) | Planned |
-| Fantasy scoring engine (standard IPL rules) | Planned |
-| Leaderboard / team pages / match views | Planned |
-| Active-passive failover (two homeservers) | Planned |
+| Auction pause / resume / end | Done |
+| CricAPI integration (ball-by-ball data) | Done |
+| Fantasy scoring engine (standard IPL rules) | Done |
+| Leaderboard / team pages / match views | Done |
+| Player-to-CricAPI mapping (fuzzy match + admin UI) | Done |
+| Background scoring poller (instrumentation.ts) | Done |
+| Production migrations (Prisma Migrate baseline) | Done |
+| Schema audit (FKs, indexes, updatedAt) | Done |
+| Docker deployment (Dockerfile, compose, health check) | Done |
+| Configurable Postgres port | Done |
+| Active-passive failover (Cloudflare Tunnel) | Documented |
 | Trading between teams | Future |
 
 ---
@@ -193,6 +200,9 @@ sequenceDiagram
 | `POST /api/auction/[leagueId]/close-bidding` | OWNER/ADMIN | Close bidding, mark SOLD/UNSOLD |
 | `POST /api/auction/[leagueId]/skip` | OWNER/ADMIN | Skip current player (mark UNSOLD) |
 | `POST /api/auction/[leagueId]/undo` | OWNER/ADMIN | Reverse last sale |
+| `POST /api/auction/[leagueId]/pause` | OWNER/ADMIN | Pause active auction |
+| `POST /api/auction/[leagueId]/resume` | OWNER/ADMIN | Resume paused auction |
+| `POST /api/auction/[leagueId]/end` | OWNER/ADMIN | End auction, mark remaining players UNSOLD |
 | `POST /api/auction/[leagueId]/bid` | Any member | Place a bid (validates budget + overseas cap) |
 | `GET /api/auction/[leagueId]/stream` | Any member | SSE endpoint for real-time updates |
 | `GET /api/auction/[leagueId]/state` | Any member | REST snapshot of full auction state |
@@ -236,7 +246,7 @@ sequenceDiagram
 
 - **Event emitter**: `src/lib/auction-events.ts` -- singleton `AuctionEmitter` class wrapping Node's `EventEmitter`, scoped per league ID. Each SSE connection subscribes to its league channel.
 - **SSE endpoint**: `GET /api/auction/[leagueId]/stream` -- returns a `ReadableStream` with `text/event-stream` content type. Sends a `state-sync` event on initial connect, then streams incremental events. Includes 15-second keepalive pings.
-- **Event types**: `auction-started`, `pot-selected`, `player-active`, `bidding-open`, `bid-placed`, `bidding-closed`, `player-skipped`, `sale-undone`, `state-sync`
+- **Event types**: `auction-started`, `auction-paused`, `auction-resumed`, `auction-ended`, `pot-selected`, `player-active`, `bidding-open`, `bid-placed`, `bidding-closed`, `player-skipped`, `sale-undone`, `state-sync`
 
 #### Client-Side State Management
 
@@ -322,74 +332,123 @@ During an auction, the UI shows the next 5 queued players in the current pot as 
 
 ## Phase 2: League (Fantasy Scoring During IPL)
 
-### Cricket Data: CricAPI Paid Plan
+### Cricket Data: CricAPI (cricketdata.org)
 
-Using **CricAPI's Small plan** (2,000 calls/day, ~$6/month):
+Using **cricketdata.org's paid plan** (2,000 calls/day, ~$6/month). Base URL: `https://api.cricapi.com/v1`.
 
-- Structured JSON responses with ball-by-ball data, batting/bowling scorecards, match status
-- Reliable and documented (no risk of scraping breakage)
-- 2,000 calls/day supports polling every 15 seconds for ~8 hours of live cricket per day (1,920 calls)
-- Provides player IDs that can be mapped to your player database
+**Endpoints used:**
+- `GET /v1/currentMatches` -- list live/recent matches
+- `GET /v1/match_scorecard?id=MATCH_ID` -- detailed batting/bowling/catching scorecard
+- `GET /v1/match_squad?id=MATCH_ID` -- squad info for player mapping
+- `GET /v1/series_info?id=SERIES_ID` -- series info with match list
+- `GET /v1/match_points?id=MATCH_ID` -- pre-calculated fantasy points (cross-check)
 
-**Player matching**: The `name` + `iplTeam` fields from your CSV are used to fuzzy-match against CricAPI's player database. A one-time mapping step during league setup confirms the matches.
+**Implementation files:**
+- `src/lib/cricapi.ts` -- API client with typed responses
+- `src/lib/scoring.ts` -- Fantasy scoring engine with configurable rules
+- `src/lib/scoring-poller.ts` -- Background poller (30s live, 5min idle)
+- `src/lib/scoring-events.ts` -- SSE emitter for live score updates
+- `src/lib/player-matcher.ts` -- Fuzzy matching for player-to-CricAPI mapping
+- `src/instrumentation.ts` -- Starts the scoring poller on server boot
+
+**Player matching**: The `name` + `iplTeam` fields from your CSV are used to fuzzy-match against CricAPI's player database via Levenshtein distance. An admin UI (`/leagues/[id]/players/map`) lets the admin confirm or correct matches. Mapped players get their `externalId` set.
 
 ### Top-N Scoring System
 
 **Only the top N players per team score points in each match.**
 
-1. After each ball/over, all player performances are recalculated
-2. For each team, players are ranked by fantasy points in the current match
-3. Only the top N are summed for the team's match score
-4. The leaderboard shows each team's cumulative score across all matches
+1. The scoring poller fetches scorecards every 30s during live matches
+2. `calculateMatchFantasyPoints()` computes points per player from raw scorecard data
+3. Results are stored in `PlayerPerformance` records (upserted per player per match)
+4. The standings API ranks players per team per match, sums top N, and aggregates across matches
 
 The top-N cutoff is stored as `scoringTopN` on the `League` model and can be adjusted between matches (but not during a live match).
 
 ### Standard IPL Fantasy Scoring Rules
 
-Stored as a JSON config on each league, with these defaults:
+Stored as a JSON config on each league (`scoringRules`), with these defaults (in `DEFAULT_SCORING_RULES`):
 
-- **Batting**: 1pt/run, +1/four, +2/six, +8 half-century, +16 century, -2 duck, SR penalties
-- **Bowling**: +25/wicket, +8 maiden, +8 four-fer, +16 five-fer, economy bonuses/penalties
-- **Fielding**: +8/catch, +12/stumping or direct run out, +6/run out assist
+- **Batting**: 1pt/run, +1/four, +2/six, +8 half-century, +16 century, -2 duck, SR penalties (<60: -6, <80: -2, >170: +4, >200: +6, min 10 balls)
+- **Bowling**: +25/wicket, +8 maiden, +8 four-fer, +16 five-fer, economy bonuses/penalties (<4: +6, <6: +4, >10: -4, >12: -6, min 2 overs)
+- **Fielding**: +8/catch, +12/stumping, +6/run out
+
+### League Phase API Routes
+
+| Route | Auth | Description |
+|---|---|---|
+| `POST /api/leagues/[id]/phase` | OWNER/ADMIN | Transition phase (AUCTION_COMPLETE -> LEAGUE_ACTIVE -> LEAGUE_COMPLETE) |
+| `POST /api/leagues/[id]/matches/sync` | OWNER/ADMIN | Sync matches from CricAPI series |
+| `GET /api/leagues/[id]/standings` | Any member | Leaderboard with top-N per match |
+| `GET /api/leagues/[id]/matches` | Any member | List matches with status |
+| `GET /api/leagues/[id]/matches/[matchId]` | Any member | Match detail with player performances |
+| `GET /api/leagues/[id]/players/map` | OWNER/ADMIN | Get player mapping suggestions |
+| `POST /api/leagues/[id]/players/map` | OWNER/ADMIN | Save player-to-CricAPI mappings |
+| `GET /api/leagues/[id]/scoring/stream` | Any member | SSE for live scoring updates |
 
 ### League Phase UI Pages
 
-- **Live Leaderboard** (`/leagues/[id]/standings`)
-- **Team Page** (`/leagues/[id]/teams/[userId]`)
-- **Match View** (`/leagues/[id]/matches/[matchId]`)
-- **Player Profile** (`/leagues/[id]/players/[playerId]`)
+- **Live Leaderboard** (`/leagues/[id]/standings`) -- Team rankings with expandable match-by-match breakdown, live SSE updates
+- **Match List** (`/leagues/[id]/matches`) -- Grouped by Live/Upcoming/Completed with status badges
+- **Match Detail** (`/leagues/[id]/matches/[matchId]`) -- Player performance table with batting/bowling/fielding tabs, team ownership highlights
+- **Player Mapping** (`/leagues/[id]/players/map`) -- Admin UI for fuzzy-matching league players to CricAPI IDs
+- **League Actions** -- Phase transitions and match sync controls on the league detail page
 
 ---
 
-## Phase 3: Active-Passive Failover (Two Homeservers)
+## Phase 3: Deployment & Failover
 
-### Architecture: Postgres Streaming Replication
+### Docker Deployment
+
+The app ships with:
+- `Dockerfile` -- Multi-stage build (deps -> build -> standalone runner)
+- `docker-compose.yml` -- Dev: Postgres only, configurable port via `POSTGRES_PORT`
+- `docker-compose.prod.yml` -- Production: Postgres + App, health checks, env vars
+- `GET /api/health` -- Returns `{ status, db, timestamp }` with 200/503
+
+See `DEPLOYMENT.md` for full setup instructions.
+
+### Configurable Postgres Port
+
+Set `POSTGRES_PORT` in `.env` to use a non-standard port (e.g., `5433` when another Postgres is on 5432). The Docker Compose files use `${POSTGRES_PORT:-5432}:5432` for host mapping.
+
+### Database Migrations
+
+Switched from `prisma db push` (dev-only) to `prisma migrate` for production safety:
+- `prisma/migrations/0_init/` -- Baseline migration from existing schema
+- `prisma/migrations/20260322.../` -- Schema audit (FKs, indexes, updatedAt, new fields)
+- Dev: `npm run db:migrate` / Prod: `npm run db:migrate:deploy`
+
+### Active-Passive Failover (Cloudflare Tunnel)
 
 ```mermaid
 graph TB
-    subgraph primary [Primary Homeserver - Active]
+    subgraph primary [Primary Homeserver]
         NextJS_P["Next.js App"]
-        PG_P["Postgres (Primary)"]
+        PG_P["Postgres Primary"]
+        Tunnel_P["cloudflared"]
         NextJS_P -->|"read/write"| PG_P
+        Tunnel_P -->|"proxy"| NextJS_P
     end
 
-    subgraph standby [Standby Homeserver - Passive]
-        NextJS_S["Next.js App (cold)"]
-        PG_S["Postgres (Replica)"]
+    subgraph standby [Standby Homeserver]
+        NextJS_S["Next.js App"]
+        PG_S["Postgres Replica"]
+        Tunnel_S["cloudflared"]
+        PG_P -->|"WAL Streaming"| PG_S
+        Tunnel_S -->|"proxy"| NextJS_S
     end
 
-    PG_P -->|"WAL Streaming<br/>Replication"| PG_S
-
-    LB["DNS / Reverse Proxy<br/>(e.g. Cloudflare, Caddy)"]
-    Browser2["Browsers"] --> LB
-    LB -->|"Routes to active"| NextJS_P
-    LB -.->|"Failover"| NextJS_S
+    CF["Cloudflare LB"]
+    Browsers["Browsers"] --> CF
+    CF -->|"active"| Tunnel_P
+    CF -.->|"failover"| Tunnel_S
 ```
 
-1. Primary Postgres streams WAL to standby (built-in, seconds of lag)
-2. Standby Next.js is cold (stopped) or read-only
-3. Health check script on standby pings primary every 30s; after 3 failures (~90s), promotes standby and updates DNS
-4. Manual failback when primary recovers
+1. Each server runs `cloudflared tunnel` connecting to Cloudflare
+2. Cloudflare Load Balancer routes to active tunnel based on `/api/health` checks
+3. Postgres streaming replication keeps standby DB in sync (seconds of lag)
+4. On failover: Cloudflare switches traffic, standby Postgres is promoted
+5. See `DEPLOYMENT.md` for full Cloudflare Tunnel + replication setup
 
 ---
 
