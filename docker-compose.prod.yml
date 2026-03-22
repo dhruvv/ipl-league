@@ -32,5 +32,18 @@ services:
       postgres:
         condition: service_healthy
 
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: migrator
+    environment:
+      DATABASE_URL: "postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-player_auction}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    profiles:
+      - tools
+
 volumes:
   pgdata:

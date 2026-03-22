@@ -26,7 +26,7 @@
 
 3. **Run migrations:**
    ```bash
-   docker compose -f docker-compose.prod.yml exec app npx prisma migrate deploy
+   docker compose -f docker-compose.prod.yml --profile tools run --rm migrate
    ```
 
 4. **Access the app** at `http://your-server:3000`

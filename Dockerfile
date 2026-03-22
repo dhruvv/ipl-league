@@ -12,6 +12,9 @@ ENV DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy"
 RUN bunx prisma generate
 RUN bun run build
 
+FROM builder AS migrator
+CMD ["bunx", "prisma", "migrate", "deploy"]
+
 FROM node:22-alpine AS runner
 WORKDIR /app
 
@@ -22,8 +25,6 @@ RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
 
 COPY --from=builder /app/prisma ./prisma
-COPY --from=builder /app/node_modules/prisma ./node_modules/prisma
-COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
 COPY --from=builder /app/src/generated/prisma ./src/generated/prisma
 
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
