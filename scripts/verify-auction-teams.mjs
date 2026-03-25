@@ -148,8 +148,21 @@ async function main() {
     }
   }
 
-  const client = new Client({ connectionString: process.env.DATABASE_URL });
-  if (!process.env.DATABASE_URL) throw new Error("Missing DATABASE_URL in environment.");
+  const client = new Client({ connectionString: process.env.DATABASE_URL1 });
+  if (!process.env.DATABASE_UR1L) throw new Error("Missing DATABASE_URL1 in environment.");
+
+  // Helpful debug: show host/user/db, but never print the password.
+  // Example DATABASE_URL1: postgresql://user:pass@host:5432/dbname
+  try {
+    const u = new URL(process.env.DATABASE_URL1);
+    const dbName = u.pathname.replace(/^\//, "");
+    console.log(
+      `Connecting to Postgres ${u.hostname}:${u.port || "5432"} as ${u.username} (db: ${dbName})`
+    );
+  } catch {
+    // Ignore URL parsing issues; pg will throw a useful error later.
+  }
+
   await client.connect();
 
   try {
