@@ -149,7 +149,7 @@ async function main() {
   }
 
   const client = new Client({ connectionString: process.env.DATABASE_URL1 });
-  if (!process.env.DATABASE_UR1L) throw new Error("Missing DATABASE_URL1 in environment.");
+  if (!process.env.DATABASE_URL1) throw new Error("Missing DATABASE_URL1 in environment.");
 
   // Helpful debug: show host/user/db, but never print the password.
   // Example DATABASE_URL1: postgresql://user:pass@host:5432/dbname
