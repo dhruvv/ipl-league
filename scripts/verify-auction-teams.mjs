@@ -254,7 +254,7 @@ async function main() {
     let wrongTeam = 0;
     let wrongStatus = 0;
     let wrongPrice = 0;
-    const updates = []; // { id, soldToTeamId, status, soldPriceRupees? }
+    const updates = []; // { id, soldToTeamId, status, soldPriceRupees?, needsPrice, playerName, actual*, expectedTeam* }
 
     for (const [playerKey, exp] of expectedByPlayerKey.entries()) {
       const rows = playersByKey.get(playerKey) ?? [];
@@ -288,10 +288,15 @@ async function main() {
       if (needsTeam || needsStatus || needsPrice) {
         updates.push({
           id: actual.id,
+          playerName: actual.name,
           soldToTeamId: expectedTeamId,
+          expectedTeamName: teamByKey.get(exp.teamKey)?.name ?? null,
           status: "SOLD",
           soldPriceRupees: exp.soldPriceRupees,
           needsPrice,
+          actualSoldToTeamId: actual.soldToTeamId,
+          actualStatus: actual.status,
+          actualSoldPrice: actual.soldPrice,
         });
       }
     }
@@ -308,6 +313,33 @@ async function main() {
     console.log(`Players with wrong price (only when --set-sold-price): ${wrongPrice}`);
     console.log(`Planned updates: ${updates.length}`);
     if (!apply) console.log("Dry-run mode. Use --apply to execute updates.");
+
+    // Print planned changes (dry-run + apply) so it's obvious what would be updated.
+    const maxToPrint = 100;
+    if (updates.length === 0) {
+      console.log("No roster changes needed.");
+    } else {
+      console.log(`---- Planned Player Updates (showing up to ${maxToPrint}) ----`);
+      const teamIdToName = new Map(dbTeamRows.rows.map((r) => [r.id, r.name]));
+      for (let i = 0; i < updates.length && i < maxToPrint; i++) {
+        const u = updates[i];
+        const actualTeamId = u.actualSoldToTeamId;
+        const expectedTeamName = u.expectedTeamName ?? "(unknown team)";
+        const actualTeamName = actualTeamId ? teamIdToName.get(actualTeamId) ?? null : null;
+
+        const priceInfo =
+          setSoldPrice && u.soldPriceRupees != null
+            ? ` | soldPrice: ${u.actualSoldPrice ?? null} -> ${u.soldPriceRupees}`
+            : "";
+
+        console.log(
+          `#${i + 1} ${u.playerName} (${u.id}): ${actualTeamName ?? actualTeamId ?? "null"} -> ${expectedTeamName}, status: ${u.actualStatus} -> ${u.status}${priceInfo}`
+        );
+      }
+      if (updates.length > maxToPrint) {
+        console.log(`... and ${updates.length - maxToPrint} more not shown.`);
+      }
+    }
 
     // Optional: also clear "SOLD" players for those teams not present in the CSV.
     const unsellOps = [];
