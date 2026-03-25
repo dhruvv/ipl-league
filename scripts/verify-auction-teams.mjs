@@ -256,14 +256,22 @@ async function main() {
     let wrongPrice = 0;
     const updates = []; // { id, soldToTeamId, status, soldPriceRupees?, needsPrice, playerName, actual*, expectedTeam* }
 
+    const missingPlayerNames = [];
+    const ambiguousPlayerNames = [];
+
     for (const [playerKey, exp] of expectedByPlayerKey.entries()) {
       const rows = playersByKey.get(playerKey) ?? [];
       if (rows.length === 0) {
         missingPlayers++;
+        missingPlayerNames.push(exp.playerName);
         continue;
       }
       if (rows.length !== 1) {
         ambiguousPlayers++;
+        ambiguousPlayerNames.push({
+          name: exp.playerName,
+          matches: rows.map((r) => ({ id: r.id, status: r.status, soldToTeamId: r.soldToTeamId })),
+        });
         continue;
       }
 
@@ -315,13 +323,12 @@ async function main() {
     if (!apply) console.log("Dry-run mode. Use --apply to execute updates.");
 
     // Print planned changes (dry-run + apply) so it's obvious what would be updated.
-    const maxToPrint = 100;
     if (updates.length === 0) {
       console.log("No roster changes needed.");
     } else {
-      console.log(`---- Planned Player Updates (showing up to ${maxToPrint}) ----`);
+      console.log("---- Planned Player Updates (all) ----");
       const teamIdToName = new Map(dbTeamRows.rows.map((r) => [r.id, r.name]));
-      for (let i = 0; i < updates.length && i < maxToPrint; i++) {
+      for (let i = 0; i < updates.length; i++) {
         const u = updates[i];
         const actualTeamId = u.actualSoldToTeamId;
         const expectedTeamName = u.expectedTeamName ?? "(unknown team)";
@@ -336,8 +343,20 @@ async function main() {
           `#${i + 1} ${u.playerName} (${u.id}): ${actualTeamName ?? actualTeamId ?? "null"} -> ${expectedTeamName}, status: ${u.actualStatus} -> ${u.status}${priceInfo}`
         );
       }
-      if (updates.length > maxToPrint) {
-        console.log(`... and ${updates.length - maxToPrint} more not shown.`);
+    }
+
+    if (missingPlayerNames.length > 0) {
+      console.log("---- Players in CSV but missing in DB (by name match) ----");
+      for (const name of missingPlayerNames) console.log(name);
+    }
+
+    if (ambiguousPlayerNames.length > 0) {
+      console.log("---- Players with ambiguous DB matches (same name multiple rows) ----");
+      for (const a of ambiguousPlayerNames) {
+        console.log(a.name);
+        for (const m of a.matches) {
+          console.log(`  - id=${m.id} status=${m.status} soldToTeamId=${m.soldToTeamId ?? "null"}`);
+        }
       }
     }
 
