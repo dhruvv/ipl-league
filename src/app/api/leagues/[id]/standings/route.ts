@@ -32,54 +32,56 @@ export async function GET(
       },
     });
 
-    const completedMatches = await prisma.leagueMatch.findMany({
+    const scoredMatches = await prisma.leagueMatch.findMany({
       where: { leagueId, status: { in: ["COMPLETED", "LIVE"] } },
       orderBy: { matchDate: "asc" },
-      select: { id: true, team1: true, team2: true, status: true, matchDate: true },
+      select: { id: true },
     });
 
+    const matchCount = scoredMatches.length;
     const standings = [];
 
     for (const team of teams) {
       const playerIds = team.players.map((p) => p.id);
-      let totalPoints = 0;
-      const matchBreakdown: {
-        matchId: string;
-        team1: string;
-        team2: string;
-        points: number;
-        topPlayers: { name: string; points: number }[];
-      }[] = [];
 
-      for (const match of completedMatches) {
-        const performances = await prisma.playerPerformance.findMany({
-          where: { matchId: match.id, playerId: { in: playerIds } },
-          orderBy: { fantasyPoints: "desc" },
-          include: { player: { select: { name: true } } },
-        });
+      const allPerformances = await prisma.playerPerformance.findMany({
+        where: { playerId: { in: playerIds }, matchId: { in: scoredMatches.map((m) => m.id) } },
+        include: { player: { select: { name: true } } },
+      });
 
-        const topN = performances.slice(0, league.scoringTopN);
-        const matchPoints = topN.reduce((sum, p) => sum + p.fantasyPoints, 0);
-        totalPoints += matchPoints;
-
-        matchBreakdown.push({
-          matchId: match.id,
-          team1: match.team1,
-          team2: match.team2,
-          points: Math.round(matchPoints * 10) / 10,
-          topPlayers: topN.map((p) => ({
-            name: p.player.name,
-            points: Math.round(p.fantasyPoints * 10) / 10,
-          })),
-        });
+      const seasonTotals = new Map<string, { name: string; points: number }>();
+      for (const perf of allPerformances) {
+        const existing = seasonTotals.get(perf.playerId);
+        if (existing) {
+          existing.points += perf.fantasyPoints;
+        } else {
+          seasonTotals.set(perf.playerId, {
+            name: perf.player.name,
+            points: perf.fantasyPoints,
+          });
+        }
       }
+
+      const playerSeasonStats = [...seasonTotals.values()].sort(
+        (a, b) => b.points - a.points
+      );
+
+      const countingPlayers = playerSeasonStats.slice(0, league.scoringTopN);
+      const totalPoints = countingPlayers.reduce((sum, p) => sum + p.points, 0);
 
       standings.push({
         teamId: team.id,
         teamName: team.name,
         totalPoints: Math.round(totalPoints * 10) / 10,
         playerCount: playerIds.length,
-        matchBreakdown,
+        countingPlayers: countingPlayers.map((p) => ({
+          name: p.name,
+          points: Math.round(p.points * 10) / 10,
+        })),
+        benchPlayers: playerSeasonStats.slice(league.scoringTopN).map((p) => ({
+          name: p.name,
+          points: Math.round(p.points * 10) / 10,
+        })),
       });
     }
 
@@ -88,7 +90,7 @@ export async function GET(
     return NextResponse.json({
       standings,
       scoringTopN: league.scoringTopN,
-      matchCount: completedMatches.length,
+      matchCount,
     });
   } catch (err) {
     console.error("GET /api/leagues/[id]/standings error:", err);

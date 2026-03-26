@@ -3,17 +3,9 @@
 import { useState, useEffect, use } from "react";
 import Link from "next/link";
 
-interface TopPlayer {
+interface PlayerSeason {
   name: string;
   points: number;
-}
-
-interface MatchBreakdown {
-  matchId: string;
-  team1: string;
-  team2: string;
-  points: number;
-  topPlayers: TopPlayer[];
 }
 
 interface TeamStanding {
@@ -21,7 +13,8 @@ interface TeamStanding {
   teamName: string;
   totalPoints: number;
   playerCount: number;
-  matchBreakdown: MatchBreakdown[];
+  countingPlayers: PlayerSeason[];
+  benchPlayers: PlayerSeason[];
 }
 
 export default function StandingsPage({
@@ -102,8 +95,8 @@ export default function StandingsPage({
         </Link>
         <h1 className="mt-1 text-2xl font-bold">Leaderboard</h1>
         <p className="text-sm text-gray-400">
-          Top {scoringTopN} players per team per match &middot; {matchCount}{" "}
-          match{matchCount !== 1 ? "es" : ""} scored
+          Top {scoringTopN} players per team across the season &middot;{" "}
+          {matchCount} match{matchCount !== 1 ? "es" : ""} scored
         </p>
       </div>
 
@@ -154,38 +147,44 @@ export default function StandingsPage({
               </button>
 
               {expanded === team.teamId &&
-                team.matchBreakdown.length > 0 && (
+                team.countingPlayers.length > 0 && (
                   <div className="border-t border-gray-800 px-4 pb-4">
-                    <div className="space-y-2 pt-3">
-                      {team.matchBreakdown.map((mb) => (
+                    <h4 className="pt-3 pb-2 text-xs font-medium text-gray-500 uppercase tracking-wide">
+                      Counting (Top {scoringTopN})
+                    </h4>
+                    <div className="space-y-1">
+                      {team.countingPlayers.map((p, i) => (
                         <div
-                          key={mb.matchId}
-                          className="rounded-lg bg-gray-800/50 p-3"
+                          key={i}
+                          className="flex items-center justify-between rounded-lg bg-gray-800/50 px-3 py-2"
                         >
-                          <div className="flex items-center justify-between mb-1">
-                            <Link
-                              href={`/leagues/${leagueId}/matches/${mb.matchId}`}
-                              className="text-sm font-medium text-indigo-400 hover:text-indigo-300"
-                            >
-                              {mb.team1} vs {mb.team2}
-                            </Link>
-                            <span className="text-sm font-bold tabular-nums text-emerald-400">
-                              {mb.points} pts
-                            </span>
-                          </div>
-                          <div className="flex flex-wrap gap-1">
-                            {mb.topPlayers.map((p, i) => (
-                              <span
-                                key={i}
-                                className="rounded bg-gray-700 px-2 py-0.5 text-xs text-gray-300"
-                              >
-                                {p.name}: {p.points}
-                              </span>
-                            ))}
-                          </div>
+                          <span className="text-sm font-medium">{p.name}</span>
+                          <span className="text-sm font-bold tabular-nums text-emerald-400">
+                            {p.points} pts
+                          </span>
                         </div>
                       ))}
                     </div>
+                    {team.benchPlayers.length > 0 && (
+                      <>
+                        <h4 className="pt-3 pb-2 text-xs font-medium text-gray-500 uppercase tracking-wide">
+                          Bench (not counting)
+                        </h4>
+                        <div className="space-y-1">
+                          {team.benchPlayers.map((p, i) => (
+                            <div
+                              key={i}
+                              className="flex items-center justify-between rounded-lg bg-gray-800/30 px-3 py-2"
+                            >
+                              <span className="text-sm text-gray-400">{p.name}</span>
+                              <span className="text-sm tabular-nums text-gray-500">
+                                {p.points} pts
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </>
+                    )}
                   </div>
                 )}
             </div>
