@@ -3,8 +3,11 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { requireAuctionAdmin } from "@/lib/auction-helpers";
 import { fetchMatchSquad } from "@/lib/cricapi";
-import { matchPlayers } from "@/lib/player-matcher";
-import type { CricApiSquadPlayer } from "@/lib/cricapi";
+import {
+  matchPlayers,
+  buildSquadPlayerListFromSquads,
+  type SquadPlayerWithTeam,
+} from "@/lib/player-matcher";
 
 export async function GET(
   _req: Request,
@@ -22,7 +25,13 @@ export async function GET(
 
     const players = await prisma.player.findMany({
       where: { leagueId },
-      select: { id: true, name: true, iplTeam: true, externalId: true },
+      select: {
+        id: true,
+        name: true,
+        iplTeam: true,
+        position: true,
+        externalId: true,
+      },
       orderBy: [{ pot: "asc" }, { slNo: "asc" }],
     });
 
@@ -32,19 +41,15 @@ export async function GET(
       take: 5,
     });
 
-    let cricApiPlayers: CricApiSquadPlayer[] = [];
+    const squadByPlayerId = new Map<string, SquadPlayerWithTeam>();
 
     if (process.env.CRICAPI_KEY) {
-      const seen = new Set<string>();
       for (const match of matches) {
         try {
           const squads = await fetchMatchSquad(match.externalMatchId);
-          for (const squad of squads) {
-            for (const p of squad.players) {
-              if (!seen.has(p.id)) {
-                seen.add(p.id);
-                cricApiPlayers.push(p);
-              }
+          for (const sp of buildSquadPlayerListFromSquads(squads)) {
+            if (!squadByPlayerId.has(sp.player.id)) {
+              squadByPlayerId.set(sp.player.id, sp);
             }
           }
         } catch {
@@ -53,9 +58,11 @@ export async function GET(
       }
     }
 
+    const squadPlayers = [...squadByPlayerId.values()];
+
     const suggestions = matchPlayers(
       players.filter((p) => !p.externalId),
-      cricApiPlayers
+      squadPlayers
     );
 
     const alreadyMapped = players
@@ -66,7 +73,7 @@ export async function GET(
         externalId: p.externalId,
       }));
 
-    return NextResponse.json({ suggestions, alreadyMapped, cricApiPlayers });
+    return NextResponse.json({ suggestions, alreadyMapped, squadCount: squadPlayers.length });
   } catch (err) {
     console.error("GET /api/leagues/[id]/players/map error:", err);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

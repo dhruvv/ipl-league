@@ -44,6 +44,7 @@
 | `AUTH_SECRET` | Yes | - | NextAuth.js secret (generate with `openssl rand -base64 32`) |
 | `AUTH_URL` | No | `http://localhost:3000` | Public URL of the app |
 | `CRICAPI_KEY` | No | - | CricAPI key for live scoring |
+| `CRICAPI_FANTASY_RULESET_ID` | No | - | Default cricketdata.org fantasy ruleset id for `match_points` (optional; can set per league in UI) |
 
 ## Configurable Postgres Port
 

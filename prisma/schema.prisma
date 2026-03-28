@@ -46,6 +46,7 @@ model League {
 
   minBidIncrement  Int     @default(10000000)
   cricapiSeriesId  String?
+  cricapiFantasyRulesetId String?
 
   members LeagueMember[]
   players Player[]

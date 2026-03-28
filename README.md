@@ -97,7 +97,7 @@ src/
     scoring.ts            Fantasy scoring engine + rules
     scoring-events.ts     SSE emitter for live scoring
     scoring-poller.ts     Background poller for live match updates
-    player-matcher.ts     Fuzzy matching (Levenshtein) for player mapping
+    player-matcher.ts     Name + franchise matching; auto-map thresholds for CricAPI ids
   instrumentation.ts      Starts scoring poller on server boot
 prisma/
   schema.prisma           Database schema (11 models)

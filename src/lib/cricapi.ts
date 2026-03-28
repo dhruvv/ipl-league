@@ -161,13 +161,29 @@ export async function fetchSeriesInfo(seriesId: string): Promise<CricApiSeriesIn
   return cricFetch<CricApiSeriesInfo>("series_info", { id: seriesId });
 }
 
-export async function fetchMatchPoints(matchId: string): Promise<{
+export type MatchPointsResponse = {
   innings: {
     inning: string;
     batting: { name: string; id: string; points: number }[];
     bowling: { name: string; id: string; points: number }[];
     catching: { name: string; id: string; points: number }[];
   }[];
-}> {
-  return cricFetch("match_points", { id: matchId });
+};
+
+/**
+ * Pre-calculated fantasy points from cricketdata.org (paid plan).
+ * Optional `rules`: ruleset id from your cricketdata member area (parameter name per their API).
+ */
+export async function fetchMatchPoints(
+  matchId: string,
+  options?: { rulesetId?: string | null }
+): Promise<MatchPointsResponse> {
+  const params: Record<string, string> = { id: matchId };
+  const ruleset =
+    options?.rulesetId?.trim() ||
+    process.env.CRICAPI_FANTASY_RULESET_ID?.trim();
+  if (ruleset) {
+    params.rules = ruleset;
+  }
+  return cricFetch<MatchPointsResponse>("match_points", params);
 }

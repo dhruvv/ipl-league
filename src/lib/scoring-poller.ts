@@ -1,8 +1,9 @@
 import { prisma } from "./prisma";
-import { fetchMatchScorecard } from "./cricapi";
+import { fetchMatchScorecard, fetchMatchPoints } from "./cricapi";
 import { calculateMatchFantasyPoints } from "./scoring";
 import { scoringEmitter } from "./scoring-events";
 import type { ScoringRules } from "./scoring";
+import { aggregateFantasyPointsByPlayerId } from "./match-points";
 
 const LIVE_POLL_INTERVAL = 30_000;
 const IDLE_POLL_INTERVAL = 300_000;
@@ -45,7 +46,12 @@ class ScoringPoller {
 
       const activeLeagues = await prisma.league.findMany({
         where: { phase: "LEAGUE_ACTIVE" },
-        select: { id: true, scoringTopN: true, scoringRules: true },
+        select: {
+          id: true,
+          scoringTopN: true,
+          scoringRules: true,
+          cricapiFantasyRulesetId: true,
+        },
       });
 
       if (activeLeagues.length === 0) {
@@ -63,7 +69,13 @@ class ScoringPoller {
 
         for (const match of liveMatches) {
           try {
-            await this.updateMatch(league.id, match.id, match.externalMatchId, league.scoringRules as Partial<ScoringRules> | null);
+            await this.updateMatch(
+              league.id,
+              match.id,
+              match.externalMatchId,
+              league.scoringRules as Partial<ScoringRules> | null,
+              league.cricapiFantasyRulesetId
+            );
           } catch (err) {
             console.error(`[ScoringPoller] Error updating match ${match.externalMatchId}:`, err);
           }
@@ -106,7 +118,8 @@ class ScoringPoller {
     leagueId: string,
     matchId: string,
     externalMatchId: string,
-    scoringRulesOverride: Partial<ScoringRules> | null
+    scoringRulesOverride: Partial<ScoringRules> | null,
+    cricapiFantasyRulesetId: string | null
   ) {
     const scorecard = await fetchMatchScorecard(externalMatchId);
     const isCompleted = scorecard.matchWinner && scorecard.matchWinner !== "";
@@ -117,6 +130,19 @@ class ScoringPoller {
       scorecard.scorecard,
       scoringRulesOverride
     );
+
+    let fantasyFromApi: Map<string, number> | null = null;
+    try {
+      const mp = await fetchMatchPoints(externalMatchId, {
+        rulesetId: cricapiFantasyRulesetId,
+      });
+      fantasyFromApi = aggregateFantasyPointsByPlayerId(mp);
+    } catch (err) {
+      console.warn(
+        `[ScoringPoller] match_points unavailable for ${externalMatchId}, using in-app scoring:`,
+        err
+      );
+    }
 
     const mappedPlayers = await prisma.player.findMany({
       where: { league: { id: leagueId }, externalId: { not: null } },
@@ -132,6 +158,10 @@ class ScoringPoller {
     for (const stat of playerStats) {
       const localPlayerId = externalToLocal.get(stat.externalId);
       if (!localPlayerId) continue;
+
+      const apiPts = fantasyFromApi?.get(stat.externalId);
+      const fantasyPoints =
+        apiPts !== undefined && apiPts !== null ? apiPts : stat.fantasyPoints;
 
       await prisma.playerPerformance.upsert({
         where: { playerId_matchId: { playerId: localPlayerId, matchId } },
@@ -152,7 +182,7 @@ class ScoringPoller {
           dotBalls: stat.dotBalls,
           strikeRate: stat.strikeRate,
           economyRate: stat.economyRate,
-          fantasyPoints: stat.fantasyPoints,
+          fantasyPoints,
           isDuck: stat.isDuck,
           isOut: stat.isOut,
         },
@@ -171,7 +201,7 @@ class ScoringPoller {
           dotBalls: stat.dotBalls,
           strikeRate: stat.strikeRate,
           economyRate: stat.economyRate,
-          fantasyPoints: stat.fantasyPoints,
+          fantasyPoints,
           isDuck: stat.isDuck,
           isOut: stat.isOut,
         },

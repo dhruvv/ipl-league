@@ -147,6 +147,7 @@ export default async function LeagueDetailPage({
             leagueId={league.id}
             phase={league.phase}
             isAdmin={isAdmin}
+            cricapiFantasyRulesetId={league.cricapiFantasyRulesetId}
           />
         </div>
       )}
