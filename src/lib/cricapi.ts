@@ -76,6 +76,8 @@ export interface ScorecardCatching {
   catcher: { id: string; name: string };
   stumpinh?: number;
   catch?: number;
+  /** Caught-and-bowled count (points use `perCaughtAndBowled`, not catch+wicket). */
+  cb?: number;
   runout?: number;
   lbw?: number;
 }

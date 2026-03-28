@@ -69,6 +69,14 @@ node scripts/cricketdata-series-match-ids.mjs --url "https://…" \
 
 Admins can also **Preview** / **Reconcile** from the league page in the UI. No separate scraper container is required; schedule the command above with cron if you want daily sync.
 
+## Fantasy scoring (official T20 parity)
+
+Stored points come from **CricketData `match_points`** when the request succeeds (using your fantasy **ruleset id** per league or `CRICAPI_FANTASY_RULESET_ID`). Align that dashboard with your league’s published table (runs 1, 4s/6s bonuses, 50/100, duck −2, wickets 25, maidens, 4w/5w bonuses, catches 8, **caught-and-bowled 33**, stumpings 12, run-outs 6, economy tiers with **2 overs** minimum, strike-rate penalties with **10 balls** minimum for **non-bowlers**). Remove or adjust legacy dashboard rules that conflict (e.g. per-wicket +4, 30-run bonus, duplicate economy tiers, stumping +6, positive SR bonuses if your rules omit them).
+
+If `match_points` fails, the app falls back to **[`src/lib/scoring.ts`](src/lib/scoring.ts)** (`DEFAULT_SCORING_RULES`), which mirrors the same economy/SR bands, duck handling (pure **bowlers** excluded by **league `Player.position`**), and fielding **including optional `cb` on scorecard catching rows**.
+
+**Starting XI (+4)** is **not** applied in-app today: CricketData must expose it in the fantasy ruleset or a lineup field; until then, add that rule only on their side or accept the gap.
+
 ## Configurable Postgres Port
 
 If another Postgres instance is already running on port 5432, set `POSTGRES_PORT` in your `.env`:

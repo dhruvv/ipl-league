@@ -8,10 +8,12 @@ export interface ScoringRules {
     halfCentury: number;
     century: number;
     duck: number;
-    srBelow60Penalty: number;
-    srBelow80Penalty: number;
-    srAbove170Bonus: number;
-    srAbove200Bonus: number;
+    /** SR &lt; 50 (min balls applies) */
+    srBelow50Penalty: number;
+    /** 50 &le; SR &le; 59.99 */
+    sr50to59Penalty: number;
+    /** 60 &lt; SR &le; 70 */
+    sr60to70Penalty: number;
     minBallsForSR: number;
   };
   bowling: {
@@ -19,14 +21,22 @@ export interface ScoringRules {
     perMaiden: number;
     fourWickets: number;
     fiveWickets: number;
-    ecoBelow4Bonus: number;
-    ecoBelow6Bonus: number;
-    ecoAbove10Penalty: number;
-    ecoAbove12Penalty: number;
     minOversForEco: number;
+    ecoBelow4Bonus: number;
+    /** inclusive 4, exclusive 5 */
+    eco4to5Bonus: number;
+    /** inclusive 5 and 6 */
+    eco5to6Bonus: number;
+    /** inclusive 9 and 10 */
+    eco9to10Penalty: number;
+    /** 10.01 through 11 inclusive */
+    eco10_01to11Penalty: number;
+    /** strictly above 11 */
+    ecoAbove11Penalty: number;
   };
   fielding: {
     perCatch: number;
+    perCaughtAndBowled: number;
     perStumping: number;
     perRunOut: number;
   };
@@ -40,10 +50,9 @@ export const DEFAULT_SCORING_RULES: ScoringRules = {
     halfCentury: 8,
     century: 16,
     duck: -2,
-    srBelow60Penalty: -6,
-    srBelow80Penalty: -2,
-    srAbove170Bonus: 4,
-    srAbove200Bonus: 6,
+    srBelow50Penalty: -6,
+    sr50to59Penalty: -4,
+    sr60to70Penalty: -2,
     minBallsForSR: 10,
   },
   bowling: {
@@ -51,26 +60,100 @@ export const DEFAULT_SCORING_RULES: ScoringRules = {
     perMaiden: 8,
     fourWickets: 8,
     fiveWickets: 16,
-    ecoBelow4Bonus: 6,
-    ecoBelow6Bonus: 4,
-    ecoAbove10Penalty: -4,
-    ecoAbove12Penalty: -6,
     minOversForEco: 2,
+    ecoBelow4Bonus: 6,
+    eco4to5Bonus: 4,
+    eco5to6Bonus: 2,
+    eco9to10Penalty: -2,
+    eco10_01to11Penalty: -4,
+    ecoAbove11Penalty: -6,
   },
   fielding: {
     perCatch: 8,
+    perCaughtAndBowled: 33,
     perStumping: 12,
     perRunOut: 6,
   },
 };
 
+function mergeBatting(
+  overrides?: Partial<ScoringRules["batting"]> & Record<string, unknown>
+): ScoringRules["batting"] {
+  const base = { ...DEFAULT_SCORING_RULES.batting };
+  if (!overrides) return base;
+  const o = overrides as Record<string, unknown>;
+  const m: Record<string, unknown> = { ...base, ...overrides };
+  if (m.sr60to70Penalty === undefined && o.srBelow60Penalty !== undefined) {
+    m.sr60to70Penalty = o.srBelow60Penalty;
+  }
+  if (m.sr50to59Penalty === undefined && o.srBelow80Penalty !== undefined) {
+    m.sr50to59Penalty = o.srBelow80Penalty;
+  }
+  delete m.srBelow60Penalty;
+  delete m.srBelow80Penalty;
+  delete m.srAbove170Bonus;
+  delete m.srAbove200Bonus;
+  return m as ScoringRules["batting"];
+}
+
+function mergeBowling(
+  overrides?: Partial<ScoringRules["bowling"]> & Record<string, unknown>
+): ScoringRules["bowling"] {
+  const base = { ...DEFAULT_SCORING_RULES.bowling };
+  if (!overrides) return base;
+  const o = { ...overrides } as Record<string, unknown>;
+  delete o.ecoBelow6Bonus;
+  delete o.ecoAbove10Penalty;
+  delete o.ecoAbove12Penalty;
+  return { ...base, ...o } as ScoringRules["bowling"];
+}
+
+function mergeFielding(
+  overrides?: Partial<ScoringRules["fielding"]> & Record<string, unknown>
+): ScoringRules["fielding"] {
+  const base = { ...DEFAULT_SCORING_RULES.fielding };
+  if (!overrides) return base;
+  const o = overrides as Record<string, unknown>;
+  const m: Record<string, unknown> = { ...base, ...overrides };
+  if (m.perCaughtAndBowled === undefined && o.perCaughtBowled !== undefined) {
+    m.perCaughtAndBowled = o.perCaughtBowled;
+  }
+  return m as ScoringRules["fielding"];
+}
+
 function mergeRules(overrides: Partial<ScoringRules> | null | undefined): ScoringRules {
   if (!overrides) return DEFAULT_SCORING_RULES;
   return {
-    batting: { ...DEFAULT_SCORING_RULES.batting, ...overrides.batting },
-    bowling: { ...DEFAULT_SCORING_RULES.bowling, ...overrides.bowling },
-    fielding: { ...DEFAULT_SCORING_RULES.fielding, ...overrides.fielding },
+    batting: mergeBatting(
+      overrides.batting as Partial<ScoringRules["batting"]> & Record<string, unknown>
+    ),
+    bowling: mergeBowling(
+      overrides.bowling as Partial<ScoringRules["bowling"]> & Record<string, unknown>
+    ),
+    fielding: mergeFielding(
+      overrides.fielding as Partial<ScoringRules["fielding"]> & Record<string, unknown>
+    ),
   };
+}
+
+/** Duck penalty applies to batsmen, keepers, all-rounders — not pure bowlers. */
+export function duckPenaltyApplies(leaguePosition: string | null | undefined): boolean {
+  if (!leaguePosition?.trim()) return true;
+  const n = leaguePosition.toLowerCase();
+  if (n.includes("all")) return true;
+  if (n.includes("wicket") || n.includes("keeper") || /\bwk\b/.test(n)) return true;
+  if (n.includes("bat") || n.includes("batsman")) return true;
+  if (n.includes("bowl") && !n.includes("all")) return false;
+  return true;
+}
+
+/** Strike-rate penalties use official table for non-bowlers only. */
+export function strikeRatePenaltyApplies(leaguePosition: string | null | undefined): boolean {
+  if (!leaguePosition?.trim()) return true;
+  const n = leaguePosition.toLowerCase();
+  if (n.includes("all")) return true;
+  if (n.includes("bowl") && !n.includes("all")) return false;
+  return true;
 }
 
 export interface BattingPoints {
@@ -79,13 +162,14 @@ export interface BattingPoints {
   sixes: number;
   milestone: number;
   duck: number;
-  srBonus: number;
+  srPenalty: number;
   total: number;
 }
 
 export function calculateBattingPoints(
   batting: ScorecardBatting,
-  rules: ScoringRules
+  rules: ScoringRules,
+  options?: { leaguePosition?: string | null }
 ): BattingPoints {
   const r = rules.batting;
   let points = 0;
@@ -101,23 +185,30 @@ export function calculateBattingPoints(
   points += milestone;
 
   let duck = 0;
-  const isDuck = batting.r === 0 && batting.b > 0 &&
-    batting.dismissal !== "not out" && batting.dismissal !== "";
-  if (isDuck) {
+  const isDuck =
+    batting.r === 0 &&
+    batting.b > 0 &&
+    batting.dismissal !== "not out" &&
+    batting.dismissal !== "";
+  if (isDuck && duckPenaltyApplies(options?.leaguePosition)) {
     duck = r.duck;
     points += duck;
   }
 
-  let srBonus = 0;
-  if (batting.b >= r.minBallsForSR && batting.sr > 0) {
-    if (batting.sr >= 200) srBonus = r.srAbove200Bonus;
-    else if (batting.sr >= 170) srBonus = r.srAbove170Bonus;
-    else if (batting.sr < 60) srBonus = r.srBelow60Penalty;
-    else if (batting.sr < 80) srBonus = r.srBelow80Penalty;
-    points += srBonus;
+  let srPenalty = 0;
+  if (
+    batting.b >= r.minBallsForSR &&
+    batting.sr > 0 &&
+    strikeRatePenaltyApplies(options?.leaguePosition)
+  ) {
+    const sr = batting.sr;
+    if (sr < 50) srPenalty = r.srBelow50Penalty;
+    else if (sr < 60) srPenalty = r.sr50to59Penalty;
+    else if (sr <= 70) srPenalty = r.sr60to70Penalty;
+    points += srPenalty;
   }
 
-  return { runs, fours, sixes, milestone, duck, srBonus, total: points };
+  return { runs, fours, sixes, milestone, duck, srPenalty, total: points };
 }
 
 export interface BowlingPoints {
@@ -128,10 +219,7 @@ export interface BowlingPoints {
   total: number;
 }
 
-export function calculateBowlingPoints(
-  bowling: ScorecardBowling,
-  rules: ScoringRules
-): BowlingPoints {
+export function calculateBowlingPoints(bowling: ScorecardBowling, rules: ScoringRules): BowlingPoints {
   const r = rules.bowling;
   let points = 0;
 
@@ -146,12 +234,15 @@ export function calculateBowlingPoints(
 
   let ecoBonus = 0;
   if (bowling.o >= r.minOversForEco) {
-    const eco = bowling.eco;
-    if (eco <= 4) ecoBonus = r.ecoBelow4Bonus;
-    else if (eco <= 6) ecoBonus = r.ecoBelow6Bonus;
-    else if (eco >= 12) ecoBonus = r.ecoAbove12Penalty;
-    else if (eco >= 10) ecoBonus = r.ecoAbove10Penalty;
-    points += ecoBonus;
+    const e = bowling.eco;
+    if (e > 11) ecoBonus = r.ecoAbove11Penalty;
+    else if (e >= 10.01 && e <= 11) ecoBonus = r.eco10_01to11Penalty;
+    else if (e >= 9 && e <= 10) ecoBonus = r.eco9to10Penalty;
+    else if (e > 6 && e < 9) ecoBonus = 0;
+    else if (e >= 5 && e <= 6) ecoBonus = r.eco5to6Bonus;
+    else if (e >= 4 && e < 5) ecoBonus = r.eco4to5Bonus;
+    else if (e < 4) ecoBonus = r.ecoBelow4Bonus;
+    else ecoBonus = 0;
   }
 
   return { wickets, maidens, milestone, ecoBonus, total: points };
@@ -159,6 +250,7 @@ export function calculateBowlingPoints(
 
 export interface FieldingPoints {
   catches: number;
+  caughtAndBowled: number;
   stumpings: number;
   runouts: number;
   total: number;
@@ -169,11 +261,25 @@ export function calculateFieldingPoints(
   rules: ScoringRules
 ): FieldingPoints {
   const r = rules.fielding;
-  const catches = (catching.catch ?? 0) * r.perCatch;
+  const cb = catching.cb ?? 0;
+  const catchTotal = catching.catch ?? 0;
+  const regularCatches = Math.max(0, catchTotal - cb);
+  const catchesPts = regularCatches * r.perCatch + cb * r.perCaughtAndBowled;
   const stumpings = (catching.stumpinh ?? 0) * r.perStumping;
   const runouts = (catching.runout ?? 0) * r.perRunOut;
-  return { catches, stumpings, runouts, total: catches + stumpings + runouts };
+  return {
+    catches: catchesPts,
+    caughtAndBowled: cb * r.perCaughtAndBowled,
+    stumpings,
+    runouts,
+    total: catchesPts + stumpings + runouts,
+  };
 }
+
+export type PlayerMetaByExternalId = Map<
+  string,
+  { position?: string | null }
+>;
 
 export interface PlayerMatchStats {
   externalId: string;
@@ -199,10 +305,17 @@ export interface PlayerMatchStats {
 
 export function calculateMatchFantasyPoints(
   scorecard: ScorecardInnings[],
-  scoringRulesOverride?: Partial<ScoringRules> | null
+  scoringRulesOverride?: Partial<ScoringRules> | null,
+  playerMetaByExternalId?: PlayerMetaByExternalId | null
 ): PlayerMatchStats[] {
   const rules = mergeRules(scoringRulesOverride);
   const playerMap = new Map<string, PlayerMatchStats>();
+
+  function metaFor(externalId: string): { leaguePosition?: string | null } {
+    const id = externalId.toLowerCase();
+    const row = playerMetaByExternalId?.get(id);
+    return { leaguePosition: row?.position ?? null };
+  }
 
   function getOrCreate(id: string, name: string): PlayerMatchStats {
     if (!playerMap.has(id)) {
@@ -234,7 +347,9 @@ export function calculateMatchFantasyPoints(
   for (const innings of scorecard) {
     for (const bat of innings.batting) {
       const p = getOrCreate(bat.batsman.id, bat.batsman.name);
-      const pts = calculateBattingPoints(bat, rules);
+      const pts = calculateBattingPoints(bat, rules, {
+        leaguePosition: metaFor(bat.batsman.id).leaguePosition,
+      });
       p.runsScored += bat.r;
       p.ballsFaced += bat.b;
       p.fours += bat["4s"];
@@ -242,7 +357,12 @@ export function calculateMatchFantasyPoints(
       if (bat.dismissal !== "not out" && bat.dismissal !== "") {
         p.isOut = true;
       }
-      if (bat.r === 0 && bat.b > 0 && p.isOut) {
+      if (
+        bat.r === 0 &&
+        bat.b > 0 &&
+        p.isOut &&
+        duckPenaltyApplies(metaFor(bat.batsman.id).leaguePosition)
+      ) {
         p.isDuck = true;
       }
       p.fantasyPoints += pts.total;
@@ -262,7 +382,9 @@ export function calculateMatchFantasyPoints(
     for (const cat of innings.catching) {
       const p = getOrCreate(cat.catcher.id, cat.catcher.name);
       const pts = calculateFieldingPoints(cat, rules);
-      p.catches += cat.catch ?? 0;
+      const cb = cat.cb ?? 0;
+      const catchTotal = cat.catch ?? 0;
+      p.catches += Math.max(0, catchTotal - cb) + cb;
       p.stumpings += cat.stumpinh ?? 0;
       p.runOuts += cat.runout ?? 0;
       p.fantasyPoints += pts.total;

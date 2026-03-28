@@ -169,9 +169,33 @@ class ScoringPoller {
 
     if (!scorecard.scorecard || scorecard.scorecard.length === 0) return;
 
+    const mappedPlayers = await prisma.player.findMany({
+      where: { league: { id: leagueId }, externalId: { not: null } },
+      select: { id: true, externalId: true, position: true },
+    });
+
+    const externalToLocal = new Map(
+      mappedPlayers
+        .filter((p) => p.externalId)
+        .map((p) => [p.externalId!.toLowerCase(), p.id])
+    );
+
+    const playerMetaByExternalId = new Map<
+      string,
+      { position?: string | null }
+    >(
+      mappedPlayers
+        .filter((p) => p.externalId)
+        .map((p) => [
+          p.externalId!.toLowerCase(),
+          { position: p.position },
+        ])
+    );
+
     const playerStats = calculateMatchFantasyPoints(
       scorecard.scorecard,
-      scoringRulesOverride
+      scoringRulesOverride,
+      playerMetaByExternalId
     );
 
     let fantasyFromApi: Map<string, number> | null = null;
@@ -179,7 +203,10 @@ class ScoringPoller {
       const mp = await fetchMatchPoints(externalMatchId, {
         rulesetId: cricapiFantasyRulesetId,
       });
-      fantasyFromApi = aggregateFantasyPointsByPlayerId(mp);
+      const raw = aggregateFantasyPointsByPlayerId(mp);
+      fantasyFromApi = new Map(
+        [...raw.entries()].map(([k, v]) => [k.toLowerCase(), v])
+      );
     } catch (err) {
       console.warn(
         `[ScoringPoller] match_points unavailable for ${externalMatchId}, using in-app scoring:`,
@@ -187,22 +214,11 @@ class ScoringPoller {
       );
     }
 
-    const mappedPlayers = await prisma.player.findMany({
-      where: { league: { id: leagueId }, externalId: { not: null } },
-      select: { id: true, externalId: true },
-    });
-
-    const externalToLocal = new Map(
-      mappedPlayers
-        .filter((p) => p.externalId)
-        .map((p) => [p.externalId!, p.id])
-    );
-
     for (const stat of playerStats) {
-      const localPlayerId = externalToLocal.get(stat.externalId);
+      const localPlayerId = externalToLocal.get(stat.externalId.toLowerCase());
       if (!localPlayerId) continue;
 
-      const apiPts = fantasyFromApi?.get(stat.externalId);
+      const apiPts = fantasyFromApi?.get(stat.externalId.toLowerCase());
       const fantasyPoints =
         apiPts !== undefined && apiPts !== null ? apiPts : stat.fantasyPoints;
 

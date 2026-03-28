@@ -67,7 +67,9 @@ export default function PlayerStandingsPage({
         <h1 className="mt-1 text-2xl font-bold">Player fantasy totals</h1>
         <p className="text-sm text-gray-400">
           Sum of fantasy points across {matchCount} scored match
-          {matchCount !== 1 ? "es" : ""} (all performances, not top-N).
+          {matchCount !== 1 ? "es" : ""} (every player’s performances). The
+          main team leaderboard uses only the top N players per team by
+          season total.
         </p>
       </div>
 
