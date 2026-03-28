@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, use } from "react";
+import { useState, useEffect, use, useMemo } from "react";
 import Link from "next/link";
 
 interface Performance {
@@ -48,9 +48,10 @@ export default function MatchDetailPage({
   const { id: leagueId, matchId } = use(params);
   const [match, setMatch] = useState<MatchDetail | null>(null);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<"all" | "batting" | "bowling" | "fielding">(
-    "all"
-  );
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [tab, setTab] = useState<
+    "all" | "fantasy" | "batting" | "bowling" | "fielding"
+  >("all");
 
   function loadMatch() {
     fetch(`/api/leagues/${leagueId}/matches/${matchId}`)
@@ -58,10 +59,28 @@ export default function MatchDetailPage({
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         return r.json();
       })
-      .then((data) => setMatch(data))
+      .then((data) => {
+        setMatch(data);
+        setLastUpdated(new Date());
+      })
       .catch((err) => console.error("[MatchDetail] Failed to load:", err))
       .finally(() => setLoading(false));
   }
+
+  const teamTotals = useMemo(() => {
+    if (!match) return [];
+    const m = new Map<string, number>();
+    for (const p of match.performances) {
+      const t = p.teamName ?? "Unsold";
+      m.set(t, (m.get(t) ?? 0) + p.fantasyPoints);
+    }
+    return [...m.entries()]
+      .map(([teamName, points]) => ({
+        teamName,
+        points: Math.round(points * 10) / 10,
+      }))
+      .sort((a, b) => b.points - a.points);
+  }, [match]);
 
   useEffect(() => {
     loadMatch();
@@ -115,6 +134,10 @@ export default function MatchDetailPage({
     (p) => p.catches > 0 || p.stumpings > 0 || p.runOuts > 0
   );
 
+  const fantasySorted = [...match.performances].sort(
+    (a, b) => b.fantasyPoints - a.fantasyPoints
+  );
+
   const displayed =
     tab === "batting"
       ? batsmen
@@ -122,7 +145,9 @@ export default function MatchDetailPage({
         ? bowlers
         : tab === "fielding"
           ? fielders
-          : match.performances;
+          : tab === "fantasy"
+            ? fantasySorted
+            : match.performances;
 
   return (
     <div className="mx-auto max-w-5xl p-6">
@@ -161,10 +186,41 @@ export default function MatchDetailPage({
             })}
           </p>
         )}
+        {lastUpdated && match.status === "LIVE" && (
+          <p className="text-xs text-red-400/90 mt-1">
+            Live updates &middot; last refresh{" "}
+            {lastUpdated.toLocaleTimeString(undefined, {
+              hour: "2-digit",
+              minute: "2-digit",
+              second: "2-digit",
+            })}
+          </p>
+        )}
       </div>
 
-      <div className="mb-4 flex gap-2">
-        {(["all", "batting", "bowling", "fielding"] as const).map((t) => (
+      {teamTotals.length > 0 && (
+        <div className="mb-4 rounded-xl border border-gray-800 bg-gray-900/80 px-4 py-3">
+          <h2 className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">
+            Fantasy by team
+          </h2>
+          <div className="flex flex-wrap gap-3">
+            {teamTotals.map((t) => (
+              <div
+                key={t.teamName}
+                className="rounded-lg bg-gray-800/60 px-3 py-1.5 text-sm"
+              >
+                <span className="text-gray-300">{t.teamName}</span>
+                <span className="ml-2 font-bold tabular-nums text-emerald-400">
+                  {t.points}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="mb-4 flex flex-wrap gap-2">
+        {(["all", "fantasy", "batting", "bowling", "fielding"] as const).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -174,7 +230,7 @@ export default function MatchDetailPage({
                 : "bg-gray-800 text-gray-300 hover:bg-gray-700"
             }`}
           >
-            {t.charAt(0).toUpperCase() + t.slice(1)}
+            {t === "fantasy" ? "Fantasy" : t.charAt(0).toUpperCase() + t.slice(1)}
           </button>
         ))}
       </div>
@@ -182,6 +238,33 @@ export default function MatchDetailPage({
       {displayed.length === 0 ? (
         <div className="rounded-xl border border-gray-800 bg-gray-900 p-8 text-center">
           <p className="text-gray-400">No performance data yet.</p>
+        </div>
+      ) : tab === "fantasy" ? (
+        <div className="overflow-x-auto rounded-xl border border-gray-800">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-900 text-left text-gray-400">
+              <tr>
+                <th className="p-3 font-medium">Player</th>
+                <th className="p-3 font-medium">Team</th>
+                <th className="p-3 font-medium text-right">Pts</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-800">
+              {fantasySorted.map((p) => (
+                <tr key={p.id} className="hover:bg-gray-800/30">
+                  <td className="p-3 font-medium">{p.playerName}</td>
+                  <td className="p-3">
+                    <span className="rounded bg-gray-700 px-2 py-0.5 text-xs">
+                      {p.teamName ?? "Unsold"}
+                    </span>
+                  </td>
+                  <td className="p-3 text-right font-bold tabular-nums text-emerald-400">
+                    {p.fantasyPoints}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       ) : (
         <div className="overflow-x-auto rounded-xl border border-gray-800">

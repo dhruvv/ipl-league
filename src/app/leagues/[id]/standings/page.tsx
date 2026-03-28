@@ -103,8 +103,14 @@ export default function StandingsPage({
         <h1 className="mt-1 text-2xl font-bold">Leaderboard</h1>
         <p className="text-sm text-gray-400">
           Top {scoringTopN} players per team per match &middot; {matchCount}{" "}
-          match{matchCount !== 1 ? "es" : ""} scored
+          match{matchCount !== 1 ? "es" : ""} scored (team competition).
         </p>
+        <Link
+          href={`/leagues/${leagueId}/standings/players`}
+          className="mt-2 inline-block text-sm text-indigo-400 hover:text-indigo-300"
+        >
+          Player fantasy totals (match-by-match) →
+        </Link>
       </div>
 
       {standings.length === 0 ? (

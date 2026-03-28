@@ -14,7 +14,8 @@
     "db:migrate:deploy": "prisma migrate deploy",
     "db:migrate:reset": "prisma migrate reset",
     "db:studio": "prisma studio",
-    "db:seed": "bun prisma/seed.ts"
+    "db:seed": "bun prisma/seed.ts",
+    "cricketdata:series-ids": "node scripts/cricketdata-series-match-ids.mjs"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.5.0",

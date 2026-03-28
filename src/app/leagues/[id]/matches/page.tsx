@@ -54,6 +54,12 @@ export default function MatchesPage({
         <p className="text-sm text-gray-400">
           {matches.length} match{matches.length !== 1 ? "es" : ""} synced
         </p>
+        <Link
+          href={`/leagues/${leagueId}/squads/today`}
+          className="mt-2 inline-block text-sm text-teal-400 hover:text-teal-300"
+        >
+          Today&apos;s squads →
+        </Link>
       </div>
 
       {matches.length === 0 ? (

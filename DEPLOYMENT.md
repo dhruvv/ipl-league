@@ -45,6 +45,29 @@
 | `AUTH_URL` | No | `http://localhost:3000` | Public URL of the app |
 | `CRICAPI_KEY` | No | - | CricAPI key for live scoring |
 | `CRICAPI_FANTASY_RULESET_ID` | No | - | Default cricketdata.org fantasy ruleset id for `match_points` (optional; can set per league in UI) |
+| `SCORING_POLL_TZ` | No | `America/Los_Angeles` | Time zone for “match day” fast polling (IPL / PT) |
+| `SCORING_POLL_WINDOW_START` | No | `03:00` | Local clock time (in `SCORING_POLL_TZ`) when fast polling may start |
+| `SCORING_POLL_WINDOW_END` | No | `16:00` | Local clock time when fast polling window ends |
+| `SCORING_POLL_IDLE_OUTSIDE_WINDOW_MS` | No | `3600000` | Poll interval when outside the window (ms) |
+| `SCORING_SYNC_SECRET` | No | - | `Authorization: Bearer …` for `POST /api/leagues/:id/matches/reconcile-scrape` (cron scripts) |
+
+## CricketData series page (match IDs)
+
+The CricAPI `series_info` list can be out of order. Ordered match UUIDs can be read from the public series schedule HTML (no browser required). The repo includes:
+
+```bash
+bun run cricketdata:series-ids -- --url "https://cricketdata.org/cricket-data-formats/series/…"
+```
+
+Optional: push into the app database from a trusted host (set `SCORING_SYNC_SECRET` in `.env` on the server):
+
+```bash
+node scripts/cricketdata-series-match-ids.mjs --url "https://…" \
+  --post-reconcile --app-url "https://your-domain.com" --league-id "<league-cuid>" \
+  --secret "$SCORING_SYNC_SECRET"
+```
+
+Admins can also **Preview** / **Reconcile** from the league page in the UI. No separate scraper container is required; schedule the command above with cron if you want daily sync.
 
 ## Configurable Postgres Port
 

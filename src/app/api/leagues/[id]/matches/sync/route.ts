@@ -30,6 +30,15 @@ export async function POST(
 
     const seriesInfo = await fetchSeriesInfo(seriesId);
 
+    const matchListSorted = [...seriesInfo.matchList].sort((a, b) => {
+      const ta = a.dateTimeGMT ? new Date(a.dateTimeGMT).getTime() : NaN;
+      const tb = b.dateTimeGMT ? new Date(b.dateTimeGMT).getTime() : NaN;
+      if (Number.isFinite(ta) && Number.isFinite(tb)) return ta - tb;
+      if (Number.isFinite(ta)) return -1;
+      if (Number.isFinite(tb)) return 1;
+      return (a.name ?? "").localeCompare(b.name ?? "");
+    });
+
     await prisma.league.update({
       where: { id: leagueId },
       data: { cricapiSeriesId: seriesId },
@@ -38,7 +47,7 @@ export async function POST(
     let created = 0;
     let skipped = 0;
 
-    for (const match of seriesInfo.matchList) {
+    for (const match of matchListSorted) {
       const existing = await prisma.leagueMatch.findUnique({
         where: {
           leagueId_externalMatchId: {
@@ -76,7 +85,7 @@ export async function POST(
 
     return NextResponse.json({
       seriesName: seriesInfo.info.name,
-      totalMatches: seriesInfo.matchList.length,
+      totalMatches: matchListSorted.length,
       created,
       skipped,
     });

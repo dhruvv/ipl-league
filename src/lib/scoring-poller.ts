@@ -4,9 +4,24 @@ import { calculateMatchFantasyPoints } from "./scoring";
 import { scoringEmitter } from "./scoring-events";
 import type { ScoringRules } from "./scoring";
 import { aggregateFantasyPointsByPlayerId } from "./match-points";
+import {
+  calendarDateInTz,
+  getScoringPollTimezone,
+  inScoringPollWindow,
+  isMatchOnCalendarDay,
+} from "./scoring-poll-schedule";
 
 const LIVE_POLL_INTERVAL = 30_000;
 const IDLE_POLL_INTERVAL = 300_000;
+
+function idleOutsideWindowMs(): number {
+  const raw = process.env.SCORING_POLL_IDLE_OUTSIDE_WINDOW_MS?.trim();
+  if (raw) {
+    const n = Number(raw);
+    if (Number.isFinite(n) && n >= 60_000) return n;
+  }
+  return 3_600_000;
+}
 
 class ScoringPoller {
   private timer: ReturnType<typeof setTimeout> | null = null;
@@ -37,10 +52,14 @@ class ScoringPoller {
     if (!this.running) return;
 
     let hasLiveMatches = false;
+    let wantFastInterval = false;
+    const tz = getScoringPollTimezone();
+    const todayYmd = calendarDateInTz(new Date(), tz);
+    const inWindow = inScoringPollWindow();
 
     try {
       if (!process.env.CRICAPI_KEY) {
-        this.scheduleNext(IDLE_POLL_INTERVAL);
+        this.scheduleNext(inWindow ? IDLE_POLL_INTERVAL : idleOutsideWindowMs());
         return;
       }
 
@@ -55,7 +74,7 @@ class ScoringPoller {
       });
 
       if (activeLeagues.length === 0) {
-        this.scheduleNext(IDLE_POLL_INTERVAL);
+        this.scheduleNext(inWindow ? IDLE_POLL_INTERVAL : idleOutsideWindowMs());
         return;
       }
 
@@ -66,6 +85,23 @@ class ScoringPoller {
         });
 
         if (liveMatches.length > 0) hasLiveMatches = true;
+
+        const upcomingRows = await prisma.leagueMatch.findMany({
+          where: { leagueId: league.id, status: "UPCOMING" },
+          select: { matchDate: true },
+        });
+        const hasUpcomingToday = upcomingRows.some(
+          (row) =>
+            row.matchDate != null &&
+            isMatchOnCalendarDay(row.matchDate, todayYmd, tz)
+        );
+
+        if (
+          inWindow &&
+          (liveMatches.length > 0 || hasUpcomingToday)
+        ) {
+          wantFastInterval = true;
+        }
 
         for (const match of liveMatches) {
           try {
@@ -111,7 +147,14 @@ class ScoringPoller {
       console.error("[ScoringPoller] Poll error:", err);
     }
 
-    this.scheduleNext(hasLiveMatches ? LIVE_POLL_INTERVAL : IDLE_POLL_INTERVAL);
+    const useFast =
+      hasLiveMatches || wantFastInterval;
+    const nextMs = useFast
+      ? LIVE_POLL_INTERVAL
+      : inWindow
+        ? IDLE_POLL_INTERVAL
+        : idleOutsideWindowMs();
+    this.scheduleNext(nextMs);
   }
 
   private async updateMatch(
