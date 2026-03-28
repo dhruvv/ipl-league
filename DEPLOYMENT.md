@@ -49,7 +49,7 @@
 | `SCORING_POLL_WINDOW_START` | No | `03:00` | Local clock time (in `SCORING_POLL_TZ`) when fast polling may start |
 | `SCORING_POLL_WINDOW_END` | No | `16:00` | Local clock time when fast polling window ends |
 | `SCORING_POLL_IDLE_OUTSIDE_WINDOW_MS` | No | `3600000` | Poll interval when outside the window (ms) |
-| `SCORING_SYNC_SECRET` | No | - | `Authorization: Bearer …` for `POST /api/leagues/:id/matches/reconcile-scrape` (cron scripts) |
+| `SCORING_SYNC_SECRET` | No | - | `Authorization: Bearer …` for `POST /api/leagues/:id/matches/reconcile-scrape` and `POST /api/leagues/:id/matches/:matchId/import-scorecard` (cron / backfill) |
 
 ## CricketData series page (match IDs)
 
@@ -68,6 +68,23 @@ node scripts/cricketdata-series-match-ids.mjs --url "https://…" \
 ```
 
 Admins can also **Preview** / **Reconcile** from the league page in the UI. No separate scraper container is required; schedule the command above with cron if you want daily sync.
+
+## Backfill fantasy points from scorecard
+
+The live poller only ticks **LIVE** matches. If a match moved to **COMPLETED** without a final successful poll (downtime, late `externalMatchId`, or API delay), player rows can be incomplete.
+
+- **UI:** League **Owner/Admin** — open the match page and use **Re-import from scorecard** (same logic as the poller: `match_scorecard` + `match_points` when available).
+- **API:** `POST /api/leagues/:leagueId/matches/:matchId/import-scorecard` with admin session cookie **or** `Authorization: Bearer $SCORING_SYNC_SECRET`.
+
+Example (trusted host):
+
+```bash
+curl -sS -X POST \
+  -H "Authorization: Bearer $SCORING_SYNC_SECRET" \
+  "https://your-domain.com/api/leagues/<league-cuid>/matches/<match-cuid>/import-scorecard"
+```
+
+Requires `CRICAPI_KEY` and a league match with a valid `externalMatchId`.
 
 ## Fantasy scoring (official T20 parity)
 

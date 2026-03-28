@@ -18,6 +18,10 @@ export async function GET(
     if (!member)
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
+    const viewerIsAdmin = Boolean(
+      member.role === "OWNER" || member.role === "ADMIN"
+    );
+
     const match = await prisma.leagueMatch.findUnique({
       where: { id: matchId },
       include: {
@@ -88,6 +92,7 @@ export async function GET(
       matchDate: match.matchDate,
       performances,
       teams,
+      viewerIsAdmin,
     });
   } catch (err) {
     console.error("GET /api/leagues/[id]/matches/[matchId] error:", err);

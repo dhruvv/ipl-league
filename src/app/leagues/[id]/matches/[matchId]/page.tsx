@@ -38,6 +38,7 @@ interface MatchDetail {
   matchDate: string | null;
   performances: Performance[];
   teams: { id: string; name: string }[];
+  viewerIsAdmin?: boolean;
 }
 
 export default function MatchDetailPage({
@@ -52,6 +53,8 @@ export default function MatchDetailPage({
   const [tab, setTab] = useState<
     "all" | "fantasy" | "batting" | "bowling" | "fielding"
   >("all");
+  const [importingScorecard, setImportingScorecard] = useState(false);
+  const [importMessage, setImportMessage] = useState<string | null>(null);
 
   function loadMatch() {
     fetch(`/api/leagues/${leagueId}/matches/${matchId}`)
@@ -195,6 +198,58 @@ export default function MatchDetailPage({
               second: "2-digit",
             })}
           </p>
+        )}
+        {match.viewerIsAdmin && (
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              disabled={importingScorecard}
+              onClick={async () => {
+                setImportMessage(null);
+                setImportingScorecard(true);
+                try {
+                  const r = await fetch(
+                    `/api/leagues/${leagueId}/matches/${matchId}/import-scorecard`,
+                    { method: "POST" }
+                  );
+                  const data = await r.json().catch(() => ({}));
+                  if (!r.ok) {
+                    setImportMessage(
+                      typeof data.error === "string"
+                        ? data.error
+                        : `Import failed (${r.status})`
+                    );
+                    return;
+                  }
+                  setImportMessage(
+                    data.hadScorecardInnings
+                      ? `Updated ${data.performancesUpserted ?? 0} player rows · status ${data.matchStatus ?? match.status}`
+                      : (data.message as string) ??
+                          "No scorecard innings yet from the API."
+                  );
+                  loadMatch();
+                } catch (e) {
+                  setImportMessage(
+                    e instanceof Error ? e.message : "Import request failed"
+                  );
+                } finally {
+                  setImportingScorecard(false);
+                }
+              }}
+              className="rounded-lg bg-amber-900/40 px-3 py-1.5 text-sm font-medium text-amber-200 ring-1 ring-amber-700/60 hover:bg-amber-900/55 disabled:opacity-50"
+            >
+              {importingScorecard
+                ? "Importing…"
+                : "Re-import from scorecard"}
+            </button>
+            <span className="text-xs text-gray-500 max-w-xl">
+              Fetches the latest CricAPI scorecard and fantasy points (same as the
+              live poller). Use for finished matches if points look stale.
+            </span>
+          </div>
+        )}
+        {importMessage && (
+          <p className="mt-2 text-sm text-gray-300">{importMessage}</p>
         )}
       </div>
 
