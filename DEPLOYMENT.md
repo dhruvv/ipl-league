@@ -23,13 +23,14 @@
    ```bash
    docker compose -f docker-compose.prod.yml up -d --build
    ```
+   The `migrate` service runs **`prisma migrate deploy`** once (after Postgres is healthy) before `app` starts, so the database always has the columns the app expects.
 
-3. **Run migrations:**
+3. **Access the app** at `http://your-server:3000`
+
+   If you ever need to apply migrations **without** recreating the stack:
    ```bash
-   docker compose -f docker-compose.prod.yml --profile tools run --rm migrate
+   docker compose -f docker-compose.prod.yml run --rm migrate
    ```
-
-4. **Access the app** at `http://your-server:3000`
 
 ## Environment Variables
 
@@ -114,11 +115,23 @@ DATABASE_URL="postgresql://postgres:postgres@localhost:5433/player_auction"
 This project uses Prisma Migrate for production-safe schema changes.
 
 - **Development:** `bun run db:migrate` (creates + applies migration)
-- **Production:** `bun run db:migrate:deploy` (applies pending migrations only)
+- **Production (Docker):** the `migrate` service runs on each `docker compose … up` before `app`; or run `docker compose -f docker-compose.prod.yml run --rm migrate` manually.
+- **Production (host):** `bun run db:migrate:deploy` (applies pending migrations only)
 - **Reset (dev only):** `bun run db:migrate:reset` (drops all data)
 - **Quick iteration (dev only):** `bun run db:push` (no migration file)
 
 Never use `db:push` or `db:migrate:reset` in production.
+
+### Prisma `P2022` (“column does not exist”)
+
+The running app expects columns your database does not have yet—**migrations were not applied** before the app started. Fix:
+
+```bash
+docker compose -f docker-compose.prod.yml run --rm migrate
+docker compose -f docker-compose.prod.yml up -d app
+```
+
+Example: `League.cricapiFantasyRulesetId` comes from migration `20260325120000_cricapi_fantasy_ruleset`; missing it breaks `prisma.league.findMany()` (including the scoring poller).
 
 ## Cloudflare Tunnel + Failover (Future)
 
