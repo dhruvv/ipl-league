@@ -51,7 +51,7 @@
 | `SCORING_POLL_WINDOW_START` | No | `03:00` | Local clock time (in `SCORING_POLL_TZ`) when fast polling may start |
 | `SCORING_POLL_WINDOW_END` | No | `16:00` | Local clock time when fast polling window ends |
 | `SCORING_POLL_IDLE_OUTSIDE_WINDOW_MS` | No | `3600000` | Poll interval when outside the window (ms) |
-| `SCORING_SYNC_SECRET` | No | - | `Authorization: Bearer …` for `POST /api/leagues/:id/matches/reconcile-scrape` and `POST /api/leagues/:id/matches/:matchId/import-scorecard` (cron / backfill) |
+| `SCORING_SYNC_SECRET` | No | - | `Authorization: Bearer …` for reconcile-scrape, import-scorecard, and batch `POST .../matches/rescore` (cron / backfill) |
 
 ## CricketData series page (match IDs)
 
@@ -76,17 +76,26 @@ Admins can also **Preview** / **Reconcile** from the league page in the UI. No s
 The live poller only ticks **LIVE** matches. If a match moved to **COMPLETED** without a final successful poll (downtime, late `externalMatchId`, or API delay), player rows can be incomplete.
 
 - **UI:** League **Owner/Admin** — open the match page and use **Re-import from scorecard** (same logic as the poller: `match_scorecard` + `match_points` when available).
-- **API:** `POST /api/leagues/:leagueId/matches/:matchId/import-scorecard` with admin session cookie **or** `Authorization: Bearer $SCORING_SYNC_SECRET`.
+- **API (single match):** `POST /api/leagues/:leagueId/matches/:matchId/import-scorecard` with admin session **or** `Authorization: Bearer $SCORING_SYNC_SECRET`.
+- **API (batch — rescore many old matches):** `POST /api/leagues/:leagueId/matches/rescore` with JSON body either `{ "scope": "allCompleted" }` (every **COMPLETED** match in the league) or `{ "matchIds": ["<cuid>", ...] }`. Same auth as above. Each row runs the same import as the per-match route (`match_points` + scorecard + local add-ons). Watch CricAPI rate limits if you rescore dozens of fixtures at once.
 
-Example (trusted host):
+Examples:
 
 ```bash
+# One match
 curl -sS -X POST \
   -H "Authorization: Bearer $SCORING_SYNC_SECRET" \
   "https://your-domain.com/api/leagues/<league-cuid>/matches/<match-cuid>/import-scorecard"
+
+# All completed matches in the league
+curl -sS -X POST \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $SCORING_SYNC_SECRET" \
+  -d '{"scope":"allCompleted"}' \
+  "https://your-domain.com/api/leagues/<league-cuid>/matches/rescore"
 ```
 
-Requires `CRICAPI_KEY` and a league match with a valid `externalMatchId`.
+Requires `CRICAPI_KEY` and `externalMatchId` on each league match (skipped in the batch response if missing).
 
 ## Fantasy scoring (official T20 parity)
 

@@ -369,10 +369,13 @@ export function calculateMatchFantasyPoints(
   }
 
   for (const innings of scorecard) {
-    for (const bat of innings.batting) {
-      const p = getOrCreate(bat.batsman.id, bat.batsman.name);
+    for (const bat of innings.batting ?? []) {
+      const batsman = bat?.batsman;
+      const bid = batsman?.id?.trim();
+      if (!bid) continue;
+      const p = getOrCreate(bid, batsman?.name ?? "Unknown");
       const pts = calculateBattingPoints(bat, rules, {
-        leaguePosition: metaFor(bat.batsman.id).leaguePosition,
+        leaguePosition: metaFor(bid).leaguePosition,
       });
       p.runsScored += typeof bat.r === "number" && Number.isFinite(bat.r) ? bat.r : 0;
       p.ballsFaced += typeof bat.b === "number" && Number.isFinite(bat.b) ? bat.b : 0;
@@ -394,8 +397,11 @@ export function calculateMatchFantasyPoints(
       p.fantasyPoints += pts.total;
     }
 
-    for (const bowl of innings.bowling) {
-      const p = getOrCreate(bowl.bowler.id, bowl.bowler.name);
+    for (const bowl of innings.bowling ?? []) {
+      const bowler = bowl?.bowler;
+      const boid = bowler?.id?.trim();
+      if (!boid) continue;
+      const p = getOrCreate(boid, bowler?.name ?? "Unknown");
       const pts = calculateBowlingPoints(bowl, rules);
       p.wicketsTaken +=
         typeof bowl.w === "number" && Number.isFinite(bowl.w) ? bowl.w : 0;
@@ -410,8 +416,11 @@ export function calculateMatchFantasyPoints(
       p.fantasyPoints += pts.total;
     }
 
-    for (const cat of innings.catching) {
-      const p = getOrCreate(cat.catcher.id, cat.catcher.name);
+    for (const cat of innings.catching ?? []) {
+      const catcher = cat?.catcher;
+      const cid = catcher?.id?.trim();
+      if (!cid) continue;
+      const p = getOrCreate(cid, catcher?.name ?? "Unknown");
       const pts = calculateFieldingPoints(cat, rules);
       const cb = cat.cb ?? 0;
       const catchTotal = cat.catch ?? 0;

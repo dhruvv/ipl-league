@@ -13,8 +13,14 @@ export interface MatchPointsData {
 
 export function aggregateFantasyPointsByPlayerId(data: MatchPointsData): Map<string, number> {
   const totals = new Map<string, number>();
-  for (const inn of data.innings) {
-    for (const row of [...inn.batting, ...inn.bowling, ...inn.catching]) {
+  for (const inn of data.innings ?? []) {
+    const rows = [
+      ...(inn.batting ?? []),
+      ...(inn.bowling ?? []),
+      ...(inn.catching ?? []),
+    ];
+    for (const row of rows) {
+      if (!row) continue;
       const id = row.id;
       if (!id) continue;
       totals.set(id, (totals.get(id) ?? 0) + (row.points ?? 0));
