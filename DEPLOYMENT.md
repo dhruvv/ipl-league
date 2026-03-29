@@ -46,6 +46,7 @@
 | `AUTH_URL` | No | `http://localhost:3000` | Public URL of the app |
 | `CRICAPI_KEY` | No | - | CricAPI key for live scoring |
 | `CRICAPI_FANTASY_RULESET_ID` | No | - | Default cricketdata.org fantasy ruleset id for `match_points` (optional; can set per league in UI) |
+| `FANTASY_POINTS_LOCAL_ONLY` | No | (off) | Set `true` to skip `match_points` and use only **`scoring.ts`** from the scorecard |
 | `SCORING_POLL_TZ` | No | `America/Los_Angeles` | Time zone for “match day” fast polling (IPL / PT) |
 | `SCORING_POLL_WINDOW_START` | No | `03:00` | Local clock time (in `SCORING_POLL_TZ`) when fast polling may start |
 | `SCORING_POLL_WINDOW_END` | No | `16:00` | Local clock time when fast polling window ends |
@@ -89,11 +90,11 @@ Requires `CRICAPI_KEY` and a league match with a valid `externalMatchId`.
 
 ## Fantasy scoring (official T20 parity)
 
-Stored points come from **CricketData `match_points`** when the request succeeds (using your fantasy **ruleset id** per league or `CRICAPI_FANTASY_RULESET_ID`). Align that dashboard with your league’s published table (runs 1, 4s/6s bonuses, 50/100, duck −2, wickets 25, maidens, 4w/5w bonuses, catches 8, **caught-and-bowled 33**, stumpings 12, run-outs 6, economy tiers with **2 overs** minimum, strike-rate penalties with **10 balls** minimum for **non-bowlers**). Remove or adjust legacy dashboard rules that conflict (e.g. per-wicket +4, 30-run bonus, duplicate economy tiers, stumping +6, positive SR bonuses if your rules omit them).
+**Default:** stored **`PlayerPerformance.fantasyPoints`** use **CricketData `match_points`** when the call succeeds (ball-by-ball; your ruleset id per league or `CRICAPI_FANTASY_RULESET_ID`). The **CricAPI scorecard** still drives **batting/bowling/fielding breakdown columns** (can lag during a live innings). On top of the API total we add **local-only** rules that the feed does not model, currently **`playingXiPoints`** (default +4 for each mapped player who appears on the scorecard — participation proxy).
 
-If `match_points` fails, the app falls back to **[`src/lib/scoring.ts`](src/lib/scoring.ts)** (`DEFAULT_SCORING_RULES`), which mirrors the same economy/SR bands, duck handling (pure **bowlers** excluded by **league `Player.position`**), and fielding **including optional `cb` on scorecard catching rows**.
+If `match_points` fails for a tick, that player falls back to **local** points from **[`src/lib/scoring.ts`](src/lib/scoring.ts)** for that poll (same engine as before: duck by **`Player.position`**, SR for non-bowlers, economy bands, `cb`, etc.) **plus** the playing-XI add-on when applicable.
 
-**Starting XI (+4)** is **not** applied in-app today: CricketData must expose it in the fantasy ruleset or a lineup field; until then, add that rule only on their side or accept the gap.
+Set **`FANTASY_POINTS_LOCAL_ONLY=true`** to never call `match_points` and use **only** scorecard-based **`scoring.ts`** (offline/dev or if you distrust the API).
 
 ## Configurable Postgres Port
 

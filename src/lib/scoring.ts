@@ -1,4 +1,9 @@
-import type { ScorecardBatting, ScorecardBowling, ScorecardCatching, ScorecardInnings } from "./cricapi";
+import type {
+  ScorecardBatting,
+  ScorecardBowling,
+  ScorecardCatching,
+  ScorecardInnings,
+} from "./cricapi";
 
 export interface ScoringRules {
   batting: {
@@ -40,6 +45,11 @@ export interface ScoringRules {
     perStumping: number;
     perRunOut: number;
   };
+  /**
+   * CricAPI has no reliable “playing XI” flag; we award this once per player who appears
+   * on the scorecard (batting, bowling, or fielding). Set 0 to disable.
+   */
+  playingXiPoints: number;
 }
 
 export const DEFAULT_SCORING_RULES: ScoringRules = {
@@ -74,6 +84,7 @@ export const DEFAULT_SCORING_RULES: ScoringRules = {
     perStumping: 12,
     perRunOut: 6,
   },
+  playingXiPoints: 4,
 };
 
 function mergeBatting(
@@ -121,8 +132,20 @@ function mergeFielding(
   return m as ScoringRules["fielding"];
 }
 
+/** Full rules including defaults (for addons like playing XI outside scorecard totals). */
+export function mergeScoringRules(
+  overrides: Partial<ScoringRules> | null | undefined
+): ScoringRules {
+  return mergeRules(overrides);
+}
+
 function mergeRules(overrides: Partial<ScoringRules> | null | undefined): ScoringRules {
   if (!overrides) return DEFAULT_SCORING_RULES;
+  const base = DEFAULT_SCORING_RULES;
+  const xi =
+    overrides.playingXiPoints !== undefined && overrides.playingXiPoints !== null
+      ? Number(overrides.playingXiPoints)
+      : base.playingXiPoints;
   return {
     batting: mergeBatting(
       overrides.batting as Partial<ScoringRules["batting"]> & Record<string, unknown>
@@ -133,6 +156,7 @@ function mergeRules(overrides: Partial<ScoringRules> | null | undefined): Scorin
     fielding: mergeFielding(
       overrides.fielding as Partial<ScoringRules["fielding"]> & Record<string, unknown>
     ),
+    playingXiPoints: Number.isFinite(xi) ? xi : base.playingXiPoints,
   };
 }
 
@@ -350,10 +374,12 @@ export function calculateMatchFantasyPoints(
       const pts = calculateBattingPoints(bat, rules, {
         leaguePosition: metaFor(bat.batsman.id).leaguePosition,
       });
-      p.runsScored += bat.r;
-      p.ballsFaced += bat.b;
-      p.fours += bat["4s"];
-      p.sixes += bat["6s"];
+      p.runsScored += typeof bat.r === "number" && Number.isFinite(bat.r) ? bat.r : 0;
+      p.ballsFaced += typeof bat.b === "number" && Number.isFinite(bat.b) ? bat.b : 0;
+      const f4 = bat["4s"];
+      const f6 = bat["6s"];
+      p.fours += typeof f4 === "number" && Number.isFinite(f4) ? f4 : 0;
+      p.sixes += typeof f6 === "number" && Number.isFinite(f6) ? f6 : 0;
       if (bat.dismissal !== "not out" && bat.dismissal !== "") {
         p.isOut = true;
       }
@@ -371,11 +397,16 @@ export function calculateMatchFantasyPoints(
     for (const bowl of innings.bowling) {
       const p = getOrCreate(bowl.bowler.id, bowl.bowler.name);
       const pts = calculateBowlingPoints(bowl, rules);
-      p.wicketsTaken += bowl.w;
-      p.oversBowled += bowl.o;
-      p.runsConceded += bowl.r;
-      p.maidens += bowl.m;
-      p.dotBalls += bowl["0s"];
+      p.wicketsTaken +=
+        typeof bowl.w === "number" && Number.isFinite(bowl.w) ? bowl.w : 0;
+      p.oversBowled +=
+        typeof bowl.o === "number" && Number.isFinite(bowl.o) ? bowl.o : 0;
+      p.runsConceded +=
+        typeof bowl.r === "number" && Number.isFinite(bowl.r) ? bowl.r : 0;
+      p.maidens +=
+        typeof bowl.m === "number" && Number.isFinite(bowl.m) ? bowl.m : 0;
+      const z = bowl["0s"];
+      p.dotBalls += typeof z === "number" && Number.isFinite(z) ? z : 0;
       p.fantasyPoints += pts.total;
     }
 

@@ -143,6 +143,26 @@ async function cricFetch<T>(endpoint: string, params: Record<string, string> = {
   return json.data as T;
 }
 
+/** Server-side: map thrown CricAPI errors to HTTP-friendly info (e.g. rate limit / bad key). */
+export function cricApiErrorHttpPayload(err: unknown): {
+  status: number;
+  error: string;
+} | null {
+  if (!(err instanceof Error)) return null;
+  const msg = err.message;
+  if (/blocked for \d+ minutes/i.test(msg)) {
+    return {
+      status: 429,
+      error:
+        "CricketData temporarily blocked requests for this API key (often wrong key or too many calls). Wait for the cooldown, set the correct CRICAPI_KEY, then retry.",
+    };
+  }
+  if (msg.startsWith("CricAPI ")) {
+    return { status: 502, error: msg };
+  }
+  return null;
+}
+
 export async function fetchCurrentMatches(offset = 0): Promise<CricApiMatch[]> {
   return cricFetch<CricApiMatch[]>("currentMatches", { offset: String(offset) });
 }

@@ -41,6 +41,8 @@ services:
       AUTH_URL: ${AUTH_URL:-http://localhost:3000}
       CRICAPI_KEY: ${CRICAPI_KEY:-}
       CRICAPI_FANTASY_RULESET_ID: ${CRICAPI_FANTASY_RULESET_ID:-}
+      # Set to "true" to use only scorecard math (scoring.ts), no match_points
+      FANTASY_POINTS_LOCAL_ONLY: ${FANTASY_POINTS_LOCAL_ONLY:-}
       SCORING_POLL_TZ: ${SCORING_POLL_TZ:-America/Los_Angeles}
       SCORING_POLL_WINDOW_START: ${SCORING_POLL_WINDOW_START:-03:00}
       SCORING_POLL_WINDOW_END: ${SCORING_POLL_WINDOW_END:-16:00}
