@@ -3,6 +3,15 @@
 import { use, useEffect, useState } from "react";
 import Link from "next/link";
 
+type Composition = {
+  mode: "match_points_plus_xi" | "local_scorecard_plus_xi" | "unknown";
+  cricketDataMatchPoints: number | null;
+  cricketDataCountsTowardStored: boolean;
+  appPlayingXiBonus: number;
+  appLocalRulesSubtotal: number;
+  referenceBreakdownCaption: string;
+};
+
 type BreakdownApi = {
   leagueName: string;
   match: {
@@ -24,6 +33,7 @@ type BreakdownApi = {
   playingXiPointsAwarded: number;
   explainedTotal: number;
   usesCricApiEngine: boolean;
+  composition: Composition;
   batting: {
     inning: string;
     name: string;
@@ -99,7 +109,21 @@ export default function FantasyBreakdownPage({
         }
         return r.json();
       })
-      .then(setData)
+      .then((json) => {
+        const c = json.composition;
+        if (!c) {
+          json.composition = {
+            mode: "unknown",
+            cricketDataMatchPoints: json.cricapiMatchPointsTotal ?? null,
+            cricketDataCountsTowardStored: Boolean(json.usesCricApiEngine),
+            appPlayingXiBonus: json.playingXiPointsAwarded ?? 0,
+            appLocalRulesSubtotal: json.localSubtotal ?? 0,
+            referenceBreakdownCaption:
+              "Line items from merged league rules and the scorecard.",
+          };
+        }
+        setData(json);
+      })
       .catch((e) =>
         setErr(e instanceof Error ? e.message : "Failed to load breakdown")
       );
@@ -134,6 +158,18 @@ export default function FantasyBreakdownPage({
     </div>
   );
 
+  const c = data.composition;
+  const apiTotal = c.cricketDataMatchPoints;
+  const xi = c.appPlayingXiBonus;
+  const localSub = c.appLocalRulesSubtotal;
+
+  const formulaLine =
+    c.mode === "match_points_plus_xi" && apiTotal != null
+      ? `${apiTotal} (CricketData match_points) + ${xi} (in-app playing-XI / on-scorecard bonus)`
+      : c.mode === "local_scorecard_plus_xi"
+        ? `${localSub} (in-app rules on scorecard) + ${xi} (playing-XI bonus)`
+        : "Configure CricAPI and mapping to see the full formula.";
+
   return (
     <div className="mx-auto max-w-3xl p-6">
       <p className="text-xs text-gray-500 mb-2">
@@ -154,38 +190,106 @@ export default function FantasyBreakdownPage({
         {data.player.externalId ?? "not mapped"}
       </p>
 
+      <div className="mt-6 grid gap-4 sm:grid-cols-2">
+        <div className="rounded-xl border border-sky-900/50 bg-sky-950/25 p-4">
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-sky-400/90 mb-1">
+            From CricketData
+          </h2>
+          <p className="text-xs text-gray-500 mb-3">
+            <code className="text-gray-400">match_points</code> — one total per
+            player from their fantasy ruleset. No per-rule JSON in the API.
+          </p>
+          {apiTotal != null ? (
+            <p className="text-2xl font-bold tabular-nums text-sky-200">
+              {apiTotal}
+              {c.cricketDataCountsTowardStored && (
+                <span className="ml-2 text-xs font-normal text-sky-400/80">
+                  counts toward stored
+                </span>
+              )}
+            </p>
+          ) : (
+            <p className="text-sm text-gray-500">
+              Not loaded or not used (
+              <code className="text-gray-400">FANTASY_POINTS_LOCAL_ONLY</code>,
+              missing ruleset, or API error).
+            </p>
+          )}
+        </div>
+
+        <div className="rounded-xl border border-amber-900/50 bg-amber-950/20 p-4">
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-amber-400/90 mb-1">
+            Added in this app
+          </h2>
+          <p className="text-xs text-gray-500 mb-3">
+            Not part of CricketData&apos;s{" "}
+            <code className="text-gray-400">match_points</code> response —
+            calculated here from league rules + scorecard presence.
+          </p>
+          <div className="space-y-2 text-sm">
+            <div className="flex justify-between gap-4">
+              <span className="text-gray-400">Playing-XI / on-scorecard bonus</span>
+              <span className="tabular-nums font-medium text-amber-100">
+                {xi === 0 ? "—" : `+${xi}`}
+              </span>
+            </div>
+            {c.mode === "local_scorecard_plus_xi" && (
+              <div className="flex justify-between gap-4 border-t border-amber-900/30 pt-2">
+                <span className="text-gray-400">
+                  Full in-app total (rules × scorecard)
+                </span>
+                <span className="tabular-nums font-medium text-amber-100">
+                  {localSub} + {xi} bonus
+                </span>
+              </div>
+            )}
+            {c.mode === "match_points_plus_xi" && (
+              <p className="text-xs text-gray-500 pt-1">
+                Aside from this bonus, nothing else is layered on top of{" "}
+                <code className="text-gray-400">match_points</code> for stored
+                points.
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
+
       <div className="mt-6 rounded-xl border border-gray-800 bg-gray-900/80 p-4">
-        <h2 className="text-xs font-medium uppercase tracking-wider text-gray-500 mb-3">
-          Stored &amp; engine
+        <h2 className="text-xs font-medium uppercase tracking-wider text-gray-500 mb-2">
+          Stored total (reconstructed)
         </h2>
         <div className="space-y-1">
           {data.storedFantasyPoints != null &&
-            row("Stored in database", data.storedFantasyPoints)}
-          {data.cricapiMatchPointsTotal != null &&
-            row("CricketData match_points (ruleset)", data.cricapiMatchPointsTotal)}
-          {row(
-            "Local scorecard subtotal (bat + bowl + field)",
-            data.localSubtotal
-          )}
-          {data.playingXiPointsAwarded !== 0 &&
-            row("Playing-XI / on-scorecard bonus", data.playingXiPointsAwarded)}
-          <div className="flex justify-between gap-4 border-t border-gray-800 pt-2 mt-2 text-sm font-medium">
+            row("Actually stored in database", data.storedFantasyPoints)}
+          <div className="rounded-lg bg-gray-800/50 px-3 py-2 text-sm text-gray-300 mt-2">
+            <span className="text-gray-500">Formula · </span>
+            {formulaLine}
+          </div>
+          <div className="flex justify-between gap-4 border-t border-gray-800 pt-2 mt-3 text-sm font-medium">
             <span className="text-gray-300">Reconstructed total</span>
             <span className="tabular-nums text-emerald-400">
               {data.explainedTotal}
             </span>
           </div>
         </div>
-        <p className="mt-3 text-xs text-gray-500">
-          {data.usesCricApiEngine
-            ? "Reconstructed total = match_points + playing-XI add-on."
-            : "Reconstructed total = local scorecard math + playing-XI add-on (API unavailable or FANTASY_POINTS_LOCAL_ONLY)."}
-        </p>
       </div>
 
-      {data.batting.length > 0 && (
+      {(data.batting.length > 0 ||
+        data.bowling.length > 0 ||
+        data.fielding.length > 0) && (
         <section className="mt-8">
-          <h2 className="text-lg font-semibold text-white mb-2">Batting</h2>
+          <h2 className="text-lg font-semibold text-white mb-1">
+            Line-by-line from in-app rules + scorecard
+          </h2>
+          <p className="text-sm text-gray-500 mb-4">
+            {c.referenceBreakdownCaption}
+          </p>
+        </section>
+      )}
+
+      {data.batting.length > 0 && (
+        <section className="mt-2">
+          <h3 className="text-base font-medium text-gray-300 mb-2">Batting</h3>
           {data.batting.map((b, i) => (
             <div
               key={`${b.inning}-${i}`}
@@ -214,7 +318,7 @@ export default function FantasyBreakdownPage({
 
       {data.bowling.length > 0 && (
         <section className="mt-8">
-          <h2 className="text-lg font-semibold text-white mb-2">Bowling</h2>
+          <h3 className="text-base font-medium text-gray-300 mb-2">Bowling</h3>
           {data.bowling.map((b, i) => (
             <div
               key={`${b.inning}-bowl-${i}`}
@@ -240,7 +344,7 @@ export default function FantasyBreakdownPage({
 
       {data.fielding.length > 0 && (
         <section className="mt-8">
-          <h2 className="text-lg font-semibold text-white mb-2">Fielding</h2>
+          <h3 className="text-base font-medium text-gray-300 mb-2">Fielding</h3>
           {data.fielding.map((f, i) => (
             <div
               key={`${f.inning}-cat-${i}`}

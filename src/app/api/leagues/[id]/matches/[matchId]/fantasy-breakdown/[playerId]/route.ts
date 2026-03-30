@@ -82,9 +82,17 @@ export async function GET(
       ? Math.round(perf.fantasyPoints * 100) / 100
       : null;
 
-    const notes: string[] = [
-      "Scorecard breakdown uses your merged league scoring rules. Stored points usually follow CricketData match_points plus playing-XI add-on when applicable.",
-    ];
+    const notes: string[] = [];
+
+    const emptyComposition = {
+      mode: "unknown" as "match_points_plus_xi" | "local_scorecard_plus_xi" | "unknown",
+      cricketDataMatchPoints: null as number | null,
+      cricketDataCountsTowardStored: false,
+      appPlayingXiBonus: 0,
+      appLocalRulesSubtotal: 0,
+      referenceBreakdownCaption:
+        "Line items apply your merged league rules to the CricAPI scorecard.",
+    };
 
     const emptyPayload = {
       leagueName: league.name,
@@ -107,6 +115,7 @@ export async function GET(
       playingXiPointsAwarded: 0,
       explainedTotal: 0,
       usesCricApiEngine: false,
+      composition: emptyComposition,
       batting: [] as ReturnType<typeof buildPlayerFantasyBreakdown>["batting"],
       bowling: [] as ReturnType<typeof buildPlayerFantasyBreakdown>["bowling"],
       fielding: [] as ReturnType<typeof buildPlayerFantasyBreakdown>["fielding"],
@@ -182,6 +191,27 @@ export async function GET(
         ? Math.round((cricapiMatchPointsTotal + xi) * 100) / 100
         : Math.round((localRounded + xi) * 100) / 100;
 
+    const storedPointsMode: "match_points_plus_xi" | "local_scorecard_plus_xi" =
+      usesCricApiEngine && cricapiMatchPointsTotal !== null
+        ? "match_points_plus_xi"
+        : "local_scorecard_plus_xi";
+
+    notes.push(
+      "CricketData exposes a single `match_points` total per player (no per-rule JSON). Rule-level detail for that total is on your cricketdata.org fantasy dashboard."
+    );
+    if (storedPointsMode === "match_points_plus_xi") {
+      notes.push(
+        "Stored fantasy points use that total, plus only the in-app playing-XI / on-scorecard bonus below (not part of `match_points`)."
+      );
+      notes.push(
+        "Batting, bowling, and fielding sections show your merged league rules applied to the scorecard — a reference audit trail; those line sums are not added again on top of `match_points`."
+      );
+    } else {
+      notes.push(
+        "Stored points use the in-app calculator only (scorecard + league rules + playing-XI). Set FANTASY_POINTS_LOCAL_ONLY=false and fix `match_points` to use CricketData totals."
+      );
+    }
+
     if (
       storedFantasyPoints != null &&
       Math.abs(storedFantasyPoints - explainedTotal) > 0.51
@@ -212,6 +242,17 @@ export async function GET(
       playingXiPointsAwarded: xi,
       explainedTotal,
       usesCricApiEngine,
+      composition: {
+        mode: storedPointsMode,
+        cricketDataMatchPoints: cricapiMatchPointsTotal,
+        cricketDataCountsTowardStored: usesCricApiEngine,
+        appPlayingXiBonus: xi,
+        appLocalRulesSubtotal: localRounded,
+        referenceBreakdownCaption:
+          storedPointsMode === "match_points_plus_xi"
+            ? "Reference only — same scorecard scored with your merged in-app rules (not added to stored points on top of match_points)."
+            : "These line items sum to the local part of stored points; playing-XI is added separately in the summary.",
+      },
       batting: breakdown.batting,
       bowling: breakdown.bowling,
       fielding: breakdown.fielding,
