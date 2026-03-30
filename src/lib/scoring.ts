@@ -38,17 +38,18 @@ export interface ScoringRules {
     fourWickets: number;
     fiveWickets: number;
     minOversForEco: number;
-    ecoBelow4Bonus: number;
-    /** inclusive 4, exclusive 5 */
-    eco4to5Bonus: number;
-    /** inclusive 5 and 6 */
-    eco5to6Bonus: number;
-    /** inclusive 9 and 10 */
-    eco9to10Penalty: number;
-    /** 10.01 through 11 inclusive */
-    eco10_01to11Penalty: number;
-    /** strictly above 11 */
-    ecoAbove11Penalty: number;
+    /** economy &lt; 5.00 */
+    ecoBelow5Bonus: number;
+    /** 5.00 &le; economy &lt; 6.00 */
+    eco5to599Bonus: number;
+    /** 6.00 &le; economy &lt; 7.00 */
+    eco6to699Bonus: number;
+    /** 10.00 &le; economy &lt; 11.00 */
+    eco10to1099Penalty: number;
+    /** 11.00 &le; economy &lt; 12.00 */
+    eco11to1199Penalty: number;
+    /** economy &ge; 12.00 */
+    eco12PlusPenalty: number;
   };
   fielding: {
     perCatch: number;
@@ -88,12 +89,12 @@ export const DEFAULT_SCORING_RULES: ScoringRules = {
     fourWickets: 8,
     fiveWickets: 16,
     minOversForEco: 2,
-    ecoBelow4Bonus: 6,
-    eco4to5Bonus: 4,
-    eco5to6Bonus: 2,
-    eco9to10Penalty: -2,
-    eco10_01to11Penalty: -4,
-    ecoAbove11Penalty: -6,
+    ecoBelow5Bonus: 6,
+    eco5to599Bonus: 4,
+    eco6to699Bonus: 2,
+    eco10to1099Penalty: -2,
+    eco11to1199Penalty: -4,
+    eco12PlusPenalty: -6,
   },
   fielding: {
     perCatch: 8,
@@ -145,7 +146,32 @@ function mergeBowling(
   delete o.ecoBelow6Bonus;
   delete o.ecoAbove10Penalty;
   delete o.ecoAbove12Penalty;
-  return { ...base, ...o } as ScoringRules["bowling"];
+  const m: Record<string, unknown> = { ...base, ...overrides };
+  if (m.ecoBelow5Bonus === undefined && o.ecoBelow4Bonus !== undefined) {
+    m.ecoBelow5Bonus = Number(o.ecoBelow4Bonus);
+  }
+  if (m.eco5to599Bonus === undefined && o.eco4to5Bonus !== undefined) {
+    m.eco5to599Bonus = Number(o.eco4to5Bonus);
+  }
+  if (m.eco6to699Bonus === undefined && o.eco5to6Bonus !== undefined) {
+    m.eco6to699Bonus = Number(o.eco5to6Bonus);
+  }
+  if (m.eco10to1099Penalty === undefined && o.eco9to10Penalty !== undefined) {
+    m.eco10to1099Penalty = Number(o.eco9to10Penalty);
+  }
+  if (m.eco11to1199Penalty === undefined && o.eco10_01to11Penalty !== undefined) {
+    m.eco11to1199Penalty = Number(o.eco10_01to11Penalty);
+  }
+  if (m.eco12PlusPenalty === undefined && o.ecoAbove11Penalty !== undefined) {
+    m.eco12PlusPenalty = Number(o.ecoAbove11Penalty);
+  }
+  delete m.ecoBelow4Bonus;
+  delete m.eco4to5Bonus;
+  delete m.eco5to6Bonus;
+  delete m.eco9to10Penalty;
+  delete m.eco10_01to11Penalty;
+  delete m.ecoAbove11Penalty;
+  return m as ScoringRules["bowling"];
 }
 
 function mergeFielding(
@@ -301,15 +327,15 @@ export function calculateBowlingPoints(bowling: ScorecardBowling, rules: Scoring
   let ecoBonus = 0;
   if (bowling.o >= r.minOversForEco) {
     const e = bowling.eco;
-    if (e > 11) ecoBonus = r.ecoAbove11Penalty;
-    else if (e >= 10.01 && e <= 11) ecoBonus = r.eco10_01to11Penalty;
-    else if (e >= 9 && e <= 10) ecoBonus = r.eco9to10Penalty;
-    else if (e > 6 && e < 9) ecoBonus = 0;
-    else if (e >= 5 && e <= 6) ecoBonus = r.eco5to6Bonus;
-    else if (e >= 4 && e < 5) ecoBonus = r.eco4to5Bonus;
-    else if (e < 4) ecoBonus = r.ecoBelow4Bonus;
-    else ecoBonus = 0;
+    if (e >= 12) ecoBonus = r.eco12PlusPenalty;
+    else if (e >= 11) ecoBonus = r.eco11to1199Penalty;
+    else if (e >= 10) ecoBonus = r.eco10to1099Penalty;
+    else if (e >= 7) ecoBonus = 0;
+    else if (e >= 6) ecoBonus = r.eco6to699Bonus;
+    else if (e >= 5) ecoBonus = r.eco5to599Bonus;
+    else ecoBonus = r.ecoBelow5Bonus;
   }
+  points += ecoBonus;
 
   return { wickets, maidens, milestone, ecoBonus, total: points };
 }
