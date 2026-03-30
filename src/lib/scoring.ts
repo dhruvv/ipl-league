@@ -1,9 +1,11 @@
 import type {
+  CricApiScorecard,
   ScorecardBatting,
   ScorecardBowling,
   ScorecardCatching,
   ScorecardInnings,
 } from "./cricapi";
+import { externalIdsSeenInScorecard } from "./squad-playing";
 
 export interface ScoringRules {
   batting: {
@@ -390,7 +392,7 @@ export function calculateMatchFantasyPoints(
         bat.r === 0 &&
         bat.b > 0 &&
         p.isOut &&
-        duckPenaltyApplies(metaFor(bat.batsman.id).leaguePosition)
+        duckPenaltyApplies(metaFor(bid).leaguePosition)
       ) {
         p.isDuck = true;
       }
@@ -437,4 +439,141 @@ export function calculateMatchFantasyPoints(
   }
 
   return [...playerMap.values()];
+}
+
+export interface BattingBreakdownRow {
+  inning: string;
+  name: string;
+  breakdown: BattingPoints;
+  r: number;
+  b: number;
+  fours: number;
+  sixes: number;
+  sr: number;
+  dismissal: string;
+}
+
+export interface BowlingBreakdownRow {
+  inning: string;
+  name: string;
+  breakdown: BowlingPoints;
+  o: number;
+  m: number;
+  r: number;
+  w: number;
+  eco: number;
+}
+
+export interface FieldingBreakdownRow {
+  inning: string;
+  name: string;
+  breakdown: FieldingPoints;
+  catch: number;
+  cb: number;
+  stumpings: number;
+  runouts: number;
+}
+
+/** Line-by-line local fantasy math for one player from the scorecard (for audit UI). */
+export function buildPlayerFantasyBreakdown(
+  scorecard: ScorecardInnings[],
+  externalIdLower: string,
+  rules: ScoringRules,
+  leaguePosition: string | null | undefined
+): {
+  batting: BattingBreakdownRow[];
+  bowling: BowlingBreakdownRow[];
+  fielding: FieldingBreakdownRow[];
+  localSubtotal: number;
+  appearsOnScorecard: boolean;
+  playingXiPointsAwarded: number;
+} {
+  const ext = externalIdLower.trim().toLowerCase();
+  const batting: BattingBreakdownRow[] = [];
+  const bowling: BowlingBreakdownRow[] = [];
+  const fielding: FieldingBreakdownRow[] = [];
+  let localSubtotal = 0;
+
+  for (const innings of scorecard) {
+    const inname =
+      typeof innings.inning === "string" ? innings.inning : "Innings";
+
+    for (const bat of innings.batting ?? []) {
+      const batsman = bat?.batsman;
+      const bid = batsman?.id?.trim().toLowerCase();
+      if (!bid || bid !== ext) continue;
+      const breakdown = calculateBattingPoints(bat, rules, {
+        leaguePosition,
+      });
+      localSubtotal += breakdown.total;
+      const f4 = bat["4s"];
+      const f6 = bat["6s"];
+      batting.push({
+        inning: inname,
+        name: batsman?.name ?? "Unknown",
+        breakdown,
+        r: typeof bat.r === "number" && Number.isFinite(bat.r) ? bat.r : 0,
+        b: typeof bat.b === "number" && Number.isFinite(bat.b) ? bat.b : 0,
+        fours: typeof f4 === "number" && Number.isFinite(f4) ? f4 : 0,
+        sixes: typeof f6 === "number" && Number.isFinite(f6) ? f6 : 0,
+        sr: typeof bat.sr === "number" && Number.isFinite(bat.sr) ? bat.sr : 0,
+        dismissal: bat.dismissal ?? "",
+      });
+    }
+
+    for (const bowl of innings.bowling ?? []) {
+      const bowler = bowl?.bowler;
+      const boid = bowler?.id?.trim().toLowerCase();
+      if (!boid || boid !== ext) continue;
+      const breakdown = calculateBowlingPoints(bowl, rules);
+      localSubtotal += breakdown.total;
+      bowling.push({
+        inning: inname,
+        name: bowler?.name ?? "Unknown",
+        breakdown,
+        o: typeof bowl.o === "number" && Number.isFinite(bowl.o) ? bowl.o : 0,
+        m: typeof bowl.m === "number" && Number.isFinite(bowl.m) ? bowl.m : 0,
+        r: typeof bowl.r === "number" && Number.isFinite(bowl.r) ? bowl.r : 0,
+        w: typeof bowl.w === "number" && Number.isFinite(bowl.w) ? bowl.w : 0,
+        eco: typeof bowl.eco === "number" && Number.isFinite(bowl.eco)
+          ? bowl.eco
+          : 0,
+      });
+    }
+
+    for (const cat of innings.catching ?? []) {
+      const catcher = cat?.catcher;
+      const cid = catcher?.id?.trim().toLowerCase();
+      if (!cid || cid !== ext) continue;
+      const breakdown = calculateFieldingPoints(cat, rules);
+      localSubtotal += breakdown.total;
+      fielding.push({
+        inning: inname,
+        name: catcher?.name ?? "Unknown",
+        breakdown,
+        catch: cat.catch ?? 0,
+        cb: cat.cb ?? 0,
+        stumpings: cat.stumpinh ?? 0,
+        runouts: cat.runout ?? 0,
+      });
+    }
+  }
+
+  const appearsOnScorecard = externalIdsSeenInScorecard({
+    scorecard,
+  } as CricApiScorecard).has(ext);
+
+  const playingXiPointsAwarded =
+    rules.playingXiPoints !== 0 && appearsOnScorecard
+      ? rules.playingXiPoints
+      : 0;
+
+  return {
+    batting,
+    bowling,
+    fielding,
+    localSubtotal,
+    appearsOnScorecard,
+    playingXiPointsAwarded,
+  };
 }

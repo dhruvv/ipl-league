@@ -307,7 +307,15 @@ export default function MatchDetailPage({
             <tbody className="divide-y divide-gray-800">
               {fantasySorted.map((p) => (
                 <tr key={p.id} className="hover:bg-gray-800/30">
-                  <td className="p-3 font-medium">{p.playerName}</td>
+                  <td className="p-3">
+                    <div className="font-medium">{p.playerName}</div>
+                    <Link
+                      href={`/leagues/${leagueId}/matches/${matchId}/fantasy-breakdown/${p.playerId}`}
+                      className="text-xs text-gray-500 hover:text-indigo-300"
+                    >
+                      Points breakdown
+                    </Link>
+                  </td>
                   <td className="p-3">
                     <span className="rounded bg-gray-700 px-2 py-0.5 text-xs">
                       {p.teamName ?? "Unsold"}
