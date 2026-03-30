@@ -63,6 +63,7 @@ type BreakdownApi = {
       wickets: number;
       maidens: number;
       milestone: number;
+      lbwBowledBonus: number;
       ecoBonus: number;
       total: number;
     };
@@ -372,7 +373,11 @@ export default function FantasyBreakdownPage({
               </p>
               {row("Wickets", b.breakdown.wickets)}
               {row("Maidens", b.breakdown.maidens)}
-              {row("4w / 5w bonus", b.breakdown.milestone)}
+              {row(
+                "Wicket haul bonus (3w / 4w / 5w, best tier)",
+                b.breakdown.milestone
+              )}
+              {row("LBW / bowled bonus", b.breakdown.lbwBowledBonus ?? 0)}
               {row("Economy tier", b.breakdown.ecoBonus)}
               <div className="flex justify-between border-t border-gray-800 pt-2 mt-1 text-sm font-medium">
                 <span>Spell</span>

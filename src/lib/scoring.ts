@@ -35,8 +35,12 @@ export interface ScoringRules {
   bowling: {
     perWicket: number;
     perMaiden: number;
+    /** One-time bonus for a 3-wicket spell (superseded by 4w/5w tier when higher). */
+    threeWickets: number;
     fourWickets: number;
     fiveWickets: number;
+    /** Extra points per wicket taken LBW or bowled (not run-out, caught, stumped, or C&B). */
+    lbwBowledBonusPerWicket: number;
     minOversForEco: number;
     /** economy &lt; 5.00 */
     ecoBelow5Bonus: number;
@@ -85,9 +89,11 @@ export const DEFAULT_SCORING_RULES: ScoringRules = {
   },
   bowling: {
     perWicket: 25,
-    perMaiden: 8,
+    perMaiden: 12,
+    threeWickets: 4,
     fourWickets: 8,
     fiveWickets: 16,
+    lbwBowledBonusPerWicket: 8,
     minOversForEco: 2,
     ecoBelow5Bonus: 6,
     eco5to599Bonus: 4,
@@ -307,11 +313,84 @@ export interface BowlingPoints {
   wickets: number;
   maidens: number;
   milestone: number;
+  lbwBowledBonus: number;
   ecoBonus: number;
   total: number;
 }
 
-export function calculateBowlingPoints(bowling: ScorecardBowling, rules: ScoringRules): BowlingPoints {
+function normalizeNamePart(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/\./g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** Dismissal tail after ` b ` names the bowler who gets wicket credit. */
+function dismissalCreditsBowlerTail(
+  dismissalRaw: string,
+  bowlerName: string
+): boolean {
+  const low = dismissalRaw.toLowerCase();
+  const m = low.match(/\bb\s+(.+)$/);
+  if (!m) return false;
+  const tail = normalizeNamePart(m[1].replace(/\([^)]*\)/g, " "));
+  const bn = normalizeNamePart(bowlerName);
+  if (!tail || !bn) return false;
+  if (tail.includes(bn) || bn.includes(tail)) return true;
+  const tailLast = tail.split(" ").pop() ?? "";
+  const bnLast = bn.split(" ").pop() ?? "";
+  return (
+    tailLast.length >= 3 &&
+    bnLast.length >= 3 &&
+    (tailLast === bnLast || tail === bnLast || tailLast === bn)
+  );
+}
+
+/** LBW or bowled modes that earn `lbwBowledBonusPerWicket`; excludes run-outs, catches, stumpings, c&amp;b. */
+function classifyLbOrBowledDismissal(dismissalRaw: string): "lbw" | "bowled" | null {
+  const d = dismissalRaw.trim();
+  if (!d || d.toLowerCase() === "not out") return null;
+  const low = d.toLowerCase();
+  if (low.includes("run out")) return null;
+  if (low.includes("retired")) return null;
+  if (/\bc\s*&\s*b\s*/i.test(d)) return null;
+  if (low.includes("lbw")) return "lbw";
+  if (/\bst\s|stumped/i.test(d)) return null;
+  if (/\bcaught\b/i.test(low) || /^c\s/i.test(d.trim())) return null;
+  if (low.includes("hit wicket")) return null;
+  if (/\bb\s+\S/i.test(d)) return "bowled";
+  return null;
+}
+
+function countLbwBowledWicketsInInnings(
+  innings: ScorecardInnings,
+  bowlerExtId: string,
+  bowlerName: string
+): number {
+  const id = bowlerExtId.trim().toLowerCase();
+  let n = 0;
+  for (const bat of innings.batting ?? []) {
+    const d = bat.dismissal ?? "";
+    const kind = classifyLbOrBowledDismissal(d);
+    if (kind !== "lbw" && kind !== "bowled") continue;
+    if (!dismissalCreditsBowlerTail(d, bowlerName)) continue;
+    n++;
+  }
+  if (n === 0) {
+    for (const cat of innings.catching ?? []) {
+      if (cat.catcher?.id?.trim().toLowerCase() !== id) continue;
+      n += cat.lbw ?? 0;
+    }
+  }
+  return n;
+}
+
+export function calculateBowlingPoints(
+  bowling: ScorecardBowling,
+  rules: ScoringRules,
+  options?: { innings?: ScorecardInnings }
+): BowlingPoints {
   const r = rules.bowling;
   let points = 0;
 
@@ -322,7 +401,19 @@ export function calculateBowlingPoints(bowling: ScorecardBowling, rules: Scoring
   let milestone = 0;
   if (bowling.w >= 5) milestone = r.fiveWickets;
   else if (bowling.w >= 4) milestone = r.fourWickets;
+  else if (bowling.w >= 3) milestone = r.threeWickets;
   points += milestone;
+
+  let lbwBowledBonus = 0;
+  if (r.lbwBowledBonusPerWicket !== 0 && options?.innings && bowling.bowler?.id) {
+    const cnt = countLbwBowledWicketsInInnings(
+      options.innings,
+      bowling.bowler.id,
+      bowling.bowler.name ?? ""
+    );
+    lbwBowledBonus = cnt * r.lbwBowledBonusPerWicket;
+  }
+  points += lbwBowledBonus;
 
   let ecoBonus = 0;
   if (bowling.o >= r.minOversForEco) {
@@ -337,7 +428,14 @@ export function calculateBowlingPoints(bowling: ScorecardBowling, rules: Scoring
   }
   points += ecoBonus;
 
-  return { wickets, maidens, milestone, ecoBonus, total: points };
+  return {
+    wickets,
+    maidens,
+    milestone,
+    lbwBowledBonus,
+    ecoBonus,
+    total: points,
+  };
 }
 
 export interface FieldingPoints {
@@ -470,7 +568,7 @@ export function calculateMatchFantasyPoints(
       const boid = bowler?.id?.trim();
       if (!boid) continue;
       const p = getOrCreate(boid, bowler?.name ?? "Unknown");
-      const pts = calculateBowlingPoints(bowl, rules);
+      const pts = calculateBowlingPoints(bowl, rules, { innings });
       p.wicketsTaken +=
         typeof bowl.w === "number" && Number.isFinite(bowl.w) ? bowl.w : 0;
       p.oversBowled +=
@@ -603,7 +701,7 @@ export function buildPlayerFantasyBreakdown(
       const bowler = bowl?.bowler;
       const boid = bowler?.id?.trim().toLowerCase();
       if (!boid || boid !== ext) continue;
-      const breakdown = calculateBowlingPoints(bowl, rules);
+      const breakdown = calculateBowlingPoints(bowl, rules, { innings });
       localSubtotal += breakdown.total;
       bowling.push({
         inning: inname,
