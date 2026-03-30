@@ -15,13 +15,22 @@ export interface ScoringRules {
     halfCentury: number;
     century: number;
     duck: number;
-    /** SR &lt; 50 (min balls applies) */
+    /** SR &lt; 50 */
     srBelow50Penalty: number;
-    /** 50 &le; SR &le; 59.99 */
+    /** 50 &le; SR &lt; 60 */
     sr50to59Penalty: number;
-    /** 60 &lt; SR &le; 70 */
+    /** 60 &le; SR &lt; 70 (60–69.99) */
     sr60to70Penalty: number;
+    /** 130 &le; SR &lt; 150 */
+    sr130to149Bonus: number;
+    /** 150 &le; SR &lt; 170 */
+    sr150to169Bonus: number;
+    /** SR &ge; 170 */
+    sr170PlusBonus: number;
+    /** Min balls for SR tiers (non-bowlers only) */
     minBallsForSR: number;
+    /** Min runs for SR tiers alternative gate (either this or min balls) */
+    minRunsForSR: number;
   };
   bowling: {
     perWicket: number;
@@ -46,6 +55,8 @@ export interface ScoringRules {
     perCaughtAndBowled: number;
     perStumping: number;
     perRunOut: number;
+    /** One-time bonus when this player’s total catches in the match ≥ 3 (incl. C&B in tally). */
+    threeCatchesBonus: number;
   };
   /**
    * CricAPI has no reliable “playing XI” flag; we award this once per player who appears
@@ -65,7 +76,11 @@ export const DEFAULT_SCORING_RULES: ScoringRules = {
     srBelow50Penalty: -6,
     sr50to59Penalty: -4,
     sr60to70Penalty: -2,
+    sr130to149Bonus: 2,
+    sr150to169Bonus: 4,
+    sr170PlusBonus: 6,
     minBallsForSR: 10,
+    minRunsForSR: 20,
   },
   bowling: {
     perWicket: 25,
@@ -84,7 +99,8 @@ export const DEFAULT_SCORING_RULES: ScoringRules = {
     perCatch: 8,
     perCaughtAndBowled: 33,
     perStumping: 12,
-    perRunOut: 6,
+    perRunOut: 8,
+    threeCatchesBonus: 4,
   },
   playingXiPoints: 4,
 };
@@ -104,6 +120,17 @@ function mergeBatting(
   }
   delete m.srBelow60Penalty;
   delete m.srBelow80Penalty;
+  if (m.sr130to149Bonus === undefined && o.srAbove130Bonus !== undefined) {
+    m.sr130to149Bonus = Number(o.srAbove130Bonus);
+  }
+  if (m.sr150to169Bonus === undefined && o.srAbove150Bonus !== undefined) {
+    m.sr150to169Bonus = Number(o.srAbove150Bonus);
+  }
+  if (m.sr170PlusBonus === undefined && o.srAbove170Bonus !== undefined) {
+    m.sr170PlusBonus = Number(o.srAbove170Bonus);
+  }
+  delete m.srAbove130Bonus;
+  delete m.srAbove150Bonus;
   delete m.srAbove170Bonus;
   delete m.srAbove200Bonus;
   return m as ScoringRules["batting"];
@@ -173,7 +200,7 @@ export function duckPenaltyApplies(leaguePosition: string | null | undefined): b
   return true;
 }
 
-/** Strike-rate penalties use official table for non-bowlers only. */
+/** Strike-rate penalty and bonus tiers use official table for non-bowlers only. */
 export function strikeRatePenaltyApplies(leaguePosition: string | null | undefined): boolean {
   if (!leaguePosition?.trim()) return true;
   const n = leaguePosition.toLowerCase();
@@ -188,7 +215,10 @@ export interface BattingPoints {
   sixes: number;
   milestone: number;
   duck: number;
+  /** Slow SR (&lt; 70); non-positive */
   srPenalty: number;
+  /** Fast SR (&ge; 130); non-negative */
+  srBonus: number;
   total: number;
 }
 
@@ -222,19 +252,29 @@ export function calculateBattingPoints(
   }
 
   let srPenalty = 0;
-  if (
-    batting.b >= r.minBallsForSR &&
+  let srBonus = 0;
+  const balls = typeof batting.b === "number" && Number.isFinite(batting.b) ? batting.b : 0;
+  const runsBat = typeof batting.r === "number" && Number.isFinite(batting.r) ? batting.r : 0;
+  const minRuns = r.minRunsForSR ?? DEFAULT_SCORING_RULES.batting.minRunsForSR;
+  const srQualifies =
+    (balls >= r.minBallsForSR || runsBat >= minRuns) &&
     batting.sr > 0 &&
-    strikeRatePenaltyApplies(options?.leaguePosition)
-  ) {
+    strikeRatePenaltyApplies(options?.leaguePosition);
+
+  if (srQualifies) {
     const sr = batting.sr;
     if (sr < 50) srPenalty = r.srBelow50Penalty;
     else if (sr < 60) srPenalty = r.sr50to59Penalty;
-    else if (sr <= 70) srPenalty = r.sr60to70Penalty;
-    points += srPenalty;
+    else if (sr < 70) srPenalty = r.sr60to70Penalty;
+    else if (sr < 130) {
+      /* neutral */
+    } else if (sr < 150) srBonus = r.sr130to149Bonus;
+    else if (sr < 170) srBonus = r.sr150to169Bonus;
+    else srBonus = r.sr170PlusBonus;
+    points += srPenalty + srBonus;
   }
 
-  return { runs, fours, sixes, milestone, duck, srPenalty, total: points };
+  return { runs, fours, sixes, milestone, duck, srPenalty, srBonus, total: points };
 }
 
 export interface BowlingPoints {
@@ -438,6 +478,15 @@ export function calculateMatchFantasyPoints(
     p.economyRate = p.oversBowled > 0 ? p.runsConceded / p.oversBowled : 0;
   }
 
+  const tc = rules.fielding.threeCatchesBonus;
+  if (tc !== 0) {
+    for (const p of playerMap.values()) {
+      if (p.catches >= 3) {
+        p.fantasyPoints += tc;
+      }
+    }
+  }
+
   return [...playerMap.values()];
 }
 
@@ -487,12 +536,15 @@ export function buildPlayerFantasyBreakdown(
   localSubtotal: number;
   appearsOnScorecard: boolean;
   playingXiPointsAwarded: number;
+  threeCatchBonusAwarded: number;
+  totalCatchesInMatch: number;
 } {
   const ext = externalIdLower.trim().toLowerCase();
   const batting: BattingBreakdownRow[] = [];
   const bowling: BowlingBreakdownRow[] = [];
   const fielding: FieldingBreakdownRow[] = [];
   let localSubtotal = 0;
+  let totalCatchesInMatch = 0;
 
   for (const innings of scorecard) {
     const inname =
@@ -547,17 +599,26 @@ export function buildPlayerFantasyBreakdown(
       if (!cid || cid !== ext) continue;
       const breakdown = calculateFieldingPoints(cat, rules);
       localSubtotal += breakdown.total;
+      const cb = cat.cb ?? 0;
+      const catchTotal = cat.catch ?? 0;
+      totalCatchesInMatch += Math.max(0, catchTotal - cb) + cb;
       fielding.push({
         inning: inname,
         name: catcher?.name ?? "Unknown",
         breakdown,
-        catch: cat.catch ?? 0,
-        cb: cat.cb ?? 0,
+        catch: catchTotal,
+        cb,
         stumpings: cat.stumpinh ?? 0,
         runouts: cat.runout ?? 0,
       });
     }
   }
+
+  const threeCatchBonusAwarded =
+    rules.fielding.threeCatchesBonus !== 0 && totalCatchesInMatch >= 3
+      ? rules.fielding.threeCatchesBonus
+      : 0;
+  localSubtotal += threeCatchBonusAwarded;
 
   const appearsOnScorecard = externalIdsSeenInScorecard({
     scorecard,
@@ -575,5 +636,7 @@ export function buildPlayerFantasyBreakdown(
     localSubtotal,
     appearsOnScorecard,
     playingXiPointsAwarded,
+    threeCatchBonusAwarded,
+    totalCatchesInMatch,
   };
 }

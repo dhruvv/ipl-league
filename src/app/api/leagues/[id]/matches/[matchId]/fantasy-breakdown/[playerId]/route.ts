@@ -119,6 +119,8 @@ export async function GET(
       batting: [] as ReturnType<typeof buildPlayerFantasyBreakdown>["batting"],
       bowling: [] as ReturnType<typeof buildPlayerFantasyBreakdown>["bowling"],
       fielding: [] as ReturnType<typeof buildPlayerFantasyBreakdown>["fielding"],
+      threeCatchBonusAwarded: 0,
+      totalCatchesInMatch: 0,
       notes,
     };
 
@@ -161,6 +163,8 @@ export async function GET(
             localSubtotal: 0,
             appearsOnScorecard: false,
             playingXiPointsAwarded: 0,
+            threeCatchBonusAwarded: 0,
+            totalCatchesInMatch: 0,
           };
 
     let cricapiMatchPointsTotal: number | null = null;
@@ -256,6 +260,8 @@ export async function GET(
       batting: breakdown.batting,
       bowling: breakdown.bowling,
       fielding: breakdown.fielding,
+      threeCatchBonusAwarded: breakdown.threeCatchBonusAwarded,
+      totalCatchesInMatch: breakdown.totalCatchesInMatch,
       notes,
     });
   } catch (err) {

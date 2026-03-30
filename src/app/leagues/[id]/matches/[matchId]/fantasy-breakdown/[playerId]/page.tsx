@@ -31,6 +31,8 @@ type BreakdownApi = {
   cricapiMatchPointsTotal: number | null;
   localSubtotal: number;
   playingXiPointsAwarded: number;
+  threeCatchBonusAwarded?: number;
+  totalCatchesInMatch?: number;
   explainedTotal: number;
   usesCricApiEngine: boolean;
   composition: Composition;
@@ -44,6 +46,7 @@ type BreakdownApi = {
       milestone: number;
       duck: number;
       srPenalty: number;
+      srBonus: number;
       total: number;
     };
     r: number;
@@ -157,6 +160,9 @@ export default function FantasyBreakdownPage({
       <span className="tabular-nums text-gray-200">{pts}</span>
     </div>
   );
+
+  const threeCatchBonus = data.threeCatchBonusAwarded ?? 0;
+  const totalCatches = data.totalCatchesInMatch ?? 0;
 
   const c = data.composition;
   const apiTotal = c.cricketDataMatchPoints;
@@ -276,7 +282,9 @@ export default function FantasyBreakdownPage({
 
       {(data.batting.length > 0 ||
         data.bowling.length > 0 ||
-        data.fielding.length > 0) && (
+        data.fielding.length > 0 ||
+        threeCatchBonus !== 0 ||
+        totalCatches >= 3) && (
         <section className="mt-8">
           <h2 className="text-lg font-semibold text-white mb-1">
             Line-by-line from in-app rules + scorecard
@@ -304,7 +312,14 @@ export default function FantasyBreakdownPage({
               {row("Sixes", b.breakdown.sixes)}
               {row("50 / 100", b.breakdown.milestone)}
               {row("Duck", b.breakdown.duck)}
-              {row("Strike rate tier", b.breakdown.srPenalty)}
+              {row(
+                "Strike rate penalty (slow SR)",
+                b.breakdown.srPenalty ?? 0
+              )}
+              {row(
+                "Strike rate bonus (fast SR)",
+                b.breakdown.srBonus ?? 0
+              )}
               <div className="flex justify-between border-t border-gray-800 pt-2 mt-1 text-sm font-medium">
                 <span>Innings batting</span>
                 <span className="tabular-nums text-emerald-300">
@@ -368,9 +383,26 @@ export default function FantasyBreakdownPage({
         </section>
       )}
 
+      {(threeCatchBonus !== 0 || totalCatches >= 3) && (
+        <section className="mt-8">
+          <h3 className="text-base font-medium text-gray-300 mb-2">
+            Match fielding bonus
+          </h3>
+          <div className="rounded-lg border border-gray-800 bg-gray-900/40 p-3 text-sm">
+            <p className="text-xs text-gray-500 mb-2">
+              Total catches credited to this player on the scorecard:{" "}
+              {totalCatches} (regular + C&B). One-time bonus when this total is 3
+              or more (per league rules; default +4).
+            </p>
+            {row("3+ catches bonus", threeCatchBonus)}
+          </div>
+        </section>
+      )}
+
       {data.batting.length === 0 &&
         data.bowling.length === 0 &&
-        data.fielding.length === 0 && (
+        data.fielding.length === 0 &&
+        !(threeCatchBonus !== 0 || totalCatches >= 3) && (
           <p className="mt-8 text-gray-400 text-sm">
             No scorecard lines for this player yet, or mapping/scorecard is
             missing.
