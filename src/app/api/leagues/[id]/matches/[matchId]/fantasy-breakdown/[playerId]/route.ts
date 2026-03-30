@@ -10,6 +10,7 @@ import {
   mergeScoringRules,
   type ScoringRules,
 } from "@/lib/scoring";
+import { computeAutoFantasyBaseForPlayer } from "@/lib/scorecard-import";
 
 /**
  * How fantasy points were derived for one player in one match (scorecard breakdown + API total).
@@ -32,6 +33,9 @@ export async function GET(
     const member = await requireLeagueMember(leagueId, session.user.id);
     if (!member)
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
+    const viewerIsAdmin =
+      member.role === "OWNER" || member.role === "ADMIN";
 
     const [league, match, player] = await Promise.all([
       prisma.league.findUnique({
@@ -75,7 +79,26 @@ export async function GET(
 
     const perf = await prisma.playerPerformance.findUnique({
       where: { playerId_matchId: { playerId, matchId } },
-      select: { fantasyPoints: true },
+      select: {
+        fantasyPoints: true,
+        adminFantasyAdjustment: true,
+        runsScored: true,
+        ballsFaced: true,
+        fours: true,
+        sixes: true,
+        wicketsTaken: true,
+        oversBowled: true,
+        runsConceded: true,
+        maidens: true,
+        catches: true,
+        stumpings: true,
+        runOuts: true,
+        dotBalls: true,
+        strikeRate: true,
+        economyRate: true,
+        isDuck: true,
+        isOut: true,
+      },
     });
 
     const storedFantasyPoints = perf
@@ -122,6 +145,8 @@ export async function GET(
       threeCatchBonusAwarded: 0,
       totalCatchesInMatch: 0,
       notes,
+      viewerIsAdmin,
+      adminPerformance: null,
     };
 
     if (!process.env.CRICAPI_KEY) {
@@ -225,6 +250,71 @@ export async function GET(
       );
     }
 
+    let adminPerformance: {
+      stats: {
+        runsScored: number;
+        ballsFaced: number;
+        fours: number;
+        sixes: number;
+        wicketsTaken: number;
+        oversBowled: number;
+        runsConceded: number;
+        maidens: number;
+        catches: number;
+        stumpings: number;
+        runOuts: number;
+        dotBalls: number;
+        strikeRate: number;
+        economyRate: number;
+        isDuck: boolean;
+        isOut: boolean;
+      };
+      adminFantasyAdjustment: number;
+      autoFantasyBase: number | null;
+      importSays: "match_points" | "local_scorecard" | "unknown";
+    } | null = null;
+
+    if (viewerIsAdmin && perf) {
+      let autoFantasyBase: number | null = null;
+      let importSays: "match_points" | "local_scorecard" | "unknown" =
+        "unknown";
+      const computed = await computeAutoFantasyBaseForPlayer({
+        leagueId,
+        externalMatchId: trimmedExt,
+        playerExternalIdLower: ext,
+        scoringRulesOverride: league.scoringRules as Partial<ScoringRules> | null,
+        cricapiFantasyRulesetId: league.cricapiFantasyRulesetId,
+      });
+      if (computed) {
+        autoFantasyBase = Math.round(computed.autoBase * 100) / 100;
+        importSays = computed.useApi ? "match_points" : "local_scorecard";
+      }
+      adminPerformance = {
+        stats: {
+          runsScored: perf.runsScored,
+          ballsFaced: perf.ballsFaced,
+          fours: perf.fours,
+          sixes: perf.sixes,
+          wicketsTaken: perf.wicketsTaken,
+          oversBowled: perf.oversBowled,
+          runsConceded: perf.runsConceded,
+          maidens: perf.maidens,
+          catches: perf.catches,
+          stumpings: perf.stumpings,
+          runOuts: perf.runOuts,
+          dotBalls: perf.dotBalls,
+          strikeRate: Math.round(perf.strikeRate * 100) / 100,
+          economyRate: Math.round(perf.economyRate * 100) / 100,
+          isDuck: perf.isDuck,
+          isOut: perf.isOut,
+        },
+        adminFantasyAdjustment:
+          Math.round(perf.adminFantasyAdjustment * 100) / 100,
+        autoFantasyBase,
+        importSays,
+      };
+    }
+
     return NextResponse.json({
       leagueName: league.name,
       match: {
@@ -263,6 +353,8 @@ export async function GET(
       threeCatchBonusAwarded: breakdown.threeCatchBonusAwarded,
       totalCatchesInMatch: breakdown.totalCatchesInMatch,
       notes,
+      viewerIsAdmin,
+      adminPerformance,
     });
   } catch (err) {
     console.error("GET fantasy-breakdown error:", err);

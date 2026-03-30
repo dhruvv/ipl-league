@@ -178,6 +178,17 @@ export async function applyScorecardToLeagueMatch(params: {
   });
   const prevStatus = prevRow?.status;
 
+  const existingAdmins = await prisma.playerPerformance.findMany({
+    where: { matchId },
+    select: { playerId: true, adminFantasyAdjustment: true },
+  });
+  const adminAdjByPlayer = new Map<string, number>(
+    existingAdmins.map((r) => [
+      r.playerId,
+      safeFloat(r.adminFantasyAdjustment),
+    ])
+  );
+
   const statByExt = new Map<string, PlayerMatchStats>(
     playerStats.map((s) => [s.externalId.toLowerCase(), s])
   );
@@ -210,9 +221,11 @@ export async function applyScorecardToLeagueMatch(params: {
         ? rules.playingXiPoints
         : 0;
 
-    const fantasyPoints = useApi
+    const autoBase = useApi
       ? safeFloat(apiPts!) + xiAdd
       : safeFloat(stat.fantasyPoints) + xiAdd;
+    const adminAdj = adminAdjByPlayer.get(localPlayerId) ?? 0;
+    const fantasyPoints = autoBase + adminAdj;
 
     const cols = prismaPerformanceScalars(stat, fantasyPoints);
 
@@ -222,6 +235,7 @@ export async function applyScorecardToLeagueMatch(params: {
         playerId: localPlayerId,
         matchId,
         ...cols,
+        adminFantasyAdjustment: 0,
       },
       update: {
         ...cols,
@@ -263,5 +277,107 @@ export async function applyScorecardToLeagueMatch(params: {
     performancesUpserted,
     matchStatus,
     hadScorecardInnings: true,
+  };
+}
+
+export type AutoFantasyBaseResult = {
+  autoBase: number;
+  useApi: boolean;
+  apiRaw: number | null;
+  localFromScorecard: number;
+  xiAdd: number;
+  stat: PlayerMatchStats;
+};
+
+/**
+ * Same “automatic” total as scorecard import (CricketData match_points or local scorecard math + playing-XI),
+ * without adminFantasyAdjustment. Used when editing a row so admins can reconcile adjustments.
+ */
+export async function computeAutoFantasyBaseForPlayer(params: {
+  leagueId: string;
+  externalMatchId: string;
+  playerExternalIdLower: string;
+  scoringRulesOverride: Partial<ScoringRules> | null;
+  cricapiFantasyRulesetId: string | null;
+}): Promise<AutoFantasyBaseResult | null> {
+  const ext = params.externalMatchId.trim();
+  const extPlayer = params.playerExternalIdLower.trim().toLowerCase();
+  if (!ext || !extPlayer) return null;
+
+  const scorecard = await fetchMatchScorecard(ext);
+  if (!scorecard.scorecard || scorecard.scorecard.length === 0) return null;
+
+  const mappedPlayers = await prisma.player.findMany({
+    where: { league: { id: params.leagueId }, externalId: { not: null } },
+    select: { id: true, externalId: true, position: true },
+  });
+
+  const rules = mergeScoringRules(params.scoringRulesOverride);
+  const onCard = externalIdsSeenInScorecard(scorecard as CricApiScorecard);
+
+  const playerMetaByExternalId = new Map<
+    string,
+    { position?: string | null }
+  >(
+    mappedPlayers
+      .filter((p) => p.externalId)
+      .map((p) => [
+        p.externalId!.toLowerCase(),
+        { position: p.position },
+      ])
+  );
+
+  const playerStats = calculateMatchFantasyPoints(
+    scorecard.scorecard,
+    params.scoringRulesOverride,
+    playerMetaByExternalId
+  );
+
+  const statByExt = new Map<string, PlayerMatchStats>(
+    playerStats.map((s) => [s.externalId.toLowerCase(), s])
+  );
+  const stat = statByExt.get(extPlayer) ?? emptyPlayerMatchStats(extPlayer);
+
+  const localOnly = process.env.FANTASY_POINTS_LOCAL_ONLY?.trim() === "true";
+  let fantasyFromApi: Map<string, number> | null = null;
+  if (!localOnly && process.env.CRICAPI_KEY) {
+    try {
+      const mp = await fetchMatchPoints(ext, {
+        rulesetId: params.cricapiFantasyRulesetId,
+      });
+      const raw = aggregateFantasyPointsByPlayerId(mp);
+      fantasyFromApi = new Map(
+        [...raw.entries()].map(([k, v]) => [k.toLowerCase(), v])
+      );
+    } catch {
+      fantasyFromApi = null;
+    }
+  }
+
+  const apiPts = fantasyFromApi?.get(extPlayer);
+  const useApi =
+    !localOnly &&
+    apiPts !== undefined &&
+    apiPts !== null &&
+    Number.isFinite(apiPts);
+
+  const xiAdd =
+    rules.playingXiPoints !== 0 && onCard.has(extPlayer)
+      ? rules.playingXiPoints
+      : 0;
+
+  const core = useApi ? safeFloat(apiPts!) : safeFloat(stat.fantasyPoints);
+  const autoBase = core + xiAdd;
+
+  return {
+    autoBase,
+    useApi,
+    apiRaw:
+      apiPts !== undefined && apiPts !== null && Number.isFinite(apiPts)
+        ? safeFloat(apiPts)
+        : null,
+    localFromScorecard: safeFloat(stat.fantasyPoints),
+    xiAdd,
+    stat,
   };
 }

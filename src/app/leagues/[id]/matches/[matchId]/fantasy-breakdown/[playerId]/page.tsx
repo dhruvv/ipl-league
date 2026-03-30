@@ -88,6 +88,12 @@ type BreakdownApi = {
     runouts: number;
   }[];
   notes: string[];
+  viewerIsAdmin?: boolean;
+  adminPerformance?: {
+    adminFantasyAdjustment: number;
+    autoFantasyBase: number | null;
+    importSays: string;
+  } | null;
 };
 
 export default function FantasyBreakdownPage({
@@ -195,6 +201,16 @@ export default function FantasyBreakdownPage({
         {data.leagueName} · {data.player.position ?? "—"} · CricAPI id:{" "}
         {data.player.externalId ?? "not mapped"}
       </p>
+      {data.viewerIsAdmin && (
+        <p className="mt-2">
+          <Link
+            href={`/leagues/${leagueId}/matches/${matchId}/fantasy-breakdown/${playerId}/edit`}
+            className="text-sm font-medium text-amber-400/95 hover:text-amber-300"
+          >
+            Edit stored stats & manual adjustment →
+          </Link>
+        </p>
+      )}
 
       <div className="mt-6 grid gap-4 sm:grid-cols-2">
         <div className="rounded-xl border border-sky-900/50 bg-sky-950/25 p-4">
@@ -267,6 +283,18 @@ export default function FantasyBreakdownPage({
         <div className="space-y-1">
           {data.storedFantasyPoints != null &&
             row("Actually stored in database", data.storedFantasyPoints)}
+          {data.adminPerformance &&
+            data.adminPerformance.adminFantasyAdjustment !== 0 && (
+              <div className="flex justify-between gap-4 py-1 text-sm">
+                <span className="text-gray-400">
+                  Admin manual adjustment (always added after auto-import)
+                </span>
+                <span className="tabular-nums text-amber-200">
+                  {data.adminPerformance.adminFantasyAdjustment > 0 ? "+" : ""}
+                  {data.adminPerformance.adminFantasyAdjustment}
+                </span>
+              </div>
+            )}
           <div className="rounded-lg bg-gray-800/50 px-3 py-2 text-sm text-gray-300 mt-2">
             <span className="text-gray-500">Formula · </span>
             {formulaLine}

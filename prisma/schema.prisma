@@ -204,6 +204,8 @@ model PlayerPerformance {
   strikeRate    Float   @default(0)
   economyRate   Float   @default(0)
   fantasyPoints Float   @default(0)
+  /** Added on top of auto-imported fantasy (API or local); preserved across scorecard re-imports. */
+  adminFantasyAdjustment Float @default(0)
   isDuck        Boolean @default(false)
   isOut         Boolean @default(false)
   updatedAt     DateTime @updatedAt
