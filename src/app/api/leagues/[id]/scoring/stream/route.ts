@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { requireLeagueMember } from "@/lib/auction-helpers";
 import { scoringEmitter } from "@/lib/scoring-events";
+import { touchScoringAudience } from "@/lib/scoring-audience";
 
 export const dynamic = "force-dynamic";
 
@@ -32,6 +33,7 @@ export async function GET(
         }
 
         send("connected", { leagueId });
+        touchScoringAudience();
 
         const unsubscribe = scoringEmitter.subscribe(leagueId, (event) => {
           send(event.type, event.data);
@@ -39,6 +41,7 @@ export async function GET(
 
         const keepalive = setInterval(() => {
           try {
+            touchScoringAudience();
             controller.enqueue(encoder.encode(": keepalive\n\n"));
           } catch {
             clearInterval(keepalive);

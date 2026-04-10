@@ -9,8 +9,18 @@ import {
   inScoringPollWindow,
   isMatchOnCalendarDay,
 } from "./scoring-poll-schedule";
+import { isScoringAudienceActive } from "./scoring-audience";
 
-const LIVE_POLL_INTERVAL = 30_000;
+function fastPollIntervalMs(): number {
+  const raw = process.env.SCORING_POLL_FAST_MS?.trim();
+  if (raw) {
+    const n = Number(raw);
+    if (Number.isFinite(n) && n >= 10_000) return n;
+  }
+  return 30_000;
+}
+
+/** Background interval when no scoring SSE clients are active (reduces CricAPI blocking). */
 const IDLE_POLL_INTERVAL = 300_000;
 
 function idleOutsideWindowMs(): number {
@@ -29,7 +39,9 @@ class ScoringPoller {
   start() {
     if (this.running) return;
     this.running = true;
-    console.log("[ScoringPoller] Started");
+    console.log(
+      "[ScoringPoller] Started — slow polls every 5m unless a member has /scoring/stream open (then fast)"
+    );
     this.scheduleNext(5_000);
   }
 
@@ -146,10 +158,11 @@ class ScoringPoller {
       console.error("[ScoringPoller] Poll error:", err);
     }
 
+    const audienceActive = isScoringAudienceActive();
     const useFast =
-      hasLiveMatches || wantFastInterval;
+      audienceActive && (hasLiveMatches || wantFastInterval);
     const nextMs = useFast
-      ? LIVE_POLL_INTERVAL
+      ? fastPollIntervalMs()
       : inWindow
         ? IDLE_POLL_INTERVAL
         : idleOutsideWindowMs();
